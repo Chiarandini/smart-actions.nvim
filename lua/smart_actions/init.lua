@@ -39,6 +39,7 @@ function M.setup(opts)
 	categories.get("explain")
 	categories.get("suppress")
 	categories.get("refactor")
+	categories.get("tests")
 	for _, id in ipairs(config.get().categories or {}) do
 		local cat, err = categories.get(id)
 		if not cat then
@@ -363,6 +364,19 @@ function M.refactor(opts)
 	opts = opts or {}
 	opts.category_id = "refactor"
 	opts.visual_range = opts.visual_range or capture_visual_range()
+	return M.run(opts)
+end
+
+--- Run the `tests` category. Generates ONE test for the function/method
+--- closest to the cursor, appended to the current file. Scope is forced
+--- to "file" so the AI sees full context and the append-at-end diff lands
+--- within scope bounds.
+---@param opts table|nil { visual_range?: table }
+function M.tests(opts)
+	opts = opts or {}
+	opts.category_id = "tests"
+	opts.scope = "file"  -- tests always operate at file scope
+	opts.visual_range = nil
 	return M.run(opts)
 end
 

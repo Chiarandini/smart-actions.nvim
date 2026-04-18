@@ -55,6 +55,13 @@ end, {
 	desc = "Propose behaviour-preserving refactors for the code under cursor",
 })
 
+vim.api.nvim_create_user_command("SmartActionTests", function()
+	require("smart_actions").tests()
+end, {
+	nargs = 0,
+	desc = "Generate a test for the function under cursor (appended to current file)",
+})
+
 vim.api.nvim_create_user_command("SmartActionLastDiff", function()
 	local diff = vim.g.smart_actions_last_diff or ""
 	local title = vim.g.smart_actions_last_title or ""

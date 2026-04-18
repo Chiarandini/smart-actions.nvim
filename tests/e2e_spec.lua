@@ -375,6 +375,32 @@ local cases = {
 		end,
 	},
 	{
+		-- Tests category: generate a test for the function at cursor.
+		-- Scope is always file-level regardless of what we pass; assert the
+		-- diff appends a test (buffer grows, contains a `test_` or
+		-- `describe`/`assert` shape, and original function is preserved).
+		name = "tests: generate a test for the function",
+		scope = "file", cursor_row = 1,  -- cursor in `add` function
+		category_id = "tests",
+		content = "def add(a, b):\n    return a + b\n",
+		assert_fn = function(r)
+			H.check("tests: >=1 action",   #r.actions >= 1, true)
+			H.check("tests: apply ok",     r.apply_ok,      true)
+			H.check("tests: buffer grew",
+				r.buf_after and #r.buf_after > #r.buf_before, true)
+			-- Original function definition still present.
+			H.check("tests: `def add` preserved",
+				r.buf_after and r.buf_after:find("def add%(a, b%)") ~= nil, true)
+			-- Added content should look test-like: contains `def test_`,
+			-- `assert`, or `import pytest` (AI might emit any combination).
+			local testish = r.buf_after and (
+				r.buf_after:find("def test_") ~= nil
+				or r.buf_after:find("assert ") ~= nil
+				or r.buf_after:find("import pytest") ~= nil)
+			H.check("tests: added content looks test-like", testish, true)
+		end,
+	},
+	{
 		-- Behaviour-preserving refactor: flatten nested if-chains into
 		-- early returns. Assertions verify the function signature and
 		-- core expression (sum(data) / len(data)) survive the refactor.

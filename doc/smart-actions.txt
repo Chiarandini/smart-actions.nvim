@@ -98,6 +98,15 @@ hide the latency inside your reading time.
 				(extract, inline, simplify, replace-mutation-
 				with-functional). Returns nothing when there
 				is no clear refactor opportunity.
+:SmartActionTests		Generate ONE test for the function closest
+				to the cursor, appended to the current file.
+				Scope is forced to "file" so the AI sees the
+				full context. Framework auto-detected from
+				file extension + existing imports (pytest,
+				vitest, #[test], Go testing, plenary).
+				Multi-file test-file placement is a deferred
+				v2.x feature; for now the test is appended
+				to the current file and can be hand-moved.
 
 ==============================================================================
 5. Scopes					*smart-actions-scopes*

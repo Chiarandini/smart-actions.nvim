@@ -8,6 +8,7 @@ Three entry points:
 - **`grE`** (`:SmartActionExplain`) — prose explanation of a diagnostic / tricky code, streamed into a floating window. Pivot to quickfix with `a`/`<CR>`.
 - **`grS`** (`:SmartActionSuppress`) — language-appropriate suppression-comment actions for LSP diagnostics (pyright-ignore, ts-expect-error, allow, noqa, etc.) without modifying logic.
 - **`grR`** (`:SmartActionRefactor`) — behaviour-preserving refactors (extract, inline, simplify, replace-mutation-with-functional). Explicitly not a bug-fix or styling category.
+- **`grT`** (`:SmartActionTests`) — generate ONE test for the function under cursor, framework auto-detected (pytest / vitest / `#[test]` / Go testing / plenary). Currently appends to the current file (multi-file test-file placement is a deferred v2.x feature).
 
 All three share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API auto-fallback), and the same pluggable context system.
 
@@ -25,10 +26,12 @@ v0.2.0. Categories shipped: `quickfix`, `explain`, `suppress`. Providers shipped
     { "grE", function() require("smart_actions").explain()  end, desc = "smart action: [E]xplain" },
     { "grS", function() require("smart_actions").suppress() end, desc = "smart action: [S]uppress diagnostic" },
     { "grR", function() require("smart_actions").refactor() end, desc = "smart action: [R]efactor" },
+    { "grT", function() require("smart_actions").tests()    end, desc = "smart action: generate [T]est" },
   },
   cmd = {
     "SmartAction", "SmartActionCancel", "SmartActionLastDiff",
     "SmartActionExplain", "SmartActionSuppress", "SmartActionRefactor",
+    "SmartActionTests",
   },
   opts = {
     default_scope = "ask",       -- or "auto" / "line" / "function" / ...
@@ -75,6 +78,18 @@ The active keybindings are shown in the float's bottom border so they don't need
 ### Refactor (`grR`)
 
 Same picker UX as quickfix, but each action is a behaviour-preserving refactor — extract a helper, inline a variable, simplify a conditional, replace a mutation loop with a functional expression. Explicitly forbidden from this category: bug fixes (use `grA`), stylistic tweaks, renames, comments. Returns nothing when the scope has no clear refactor opportunity.
+
+### Tests (`grT`)
+
+Generates ONE test for the function or method closest to the cursor, framework auto-detected from the file extension + existing imports:
+
+- Python: `def test_xxx():` + `assert`
+- TypeScript / JavaScript: vitest or jest (`describe` / `it` / `expect`)
+- Rust: `#[test]` inside `#[cfg(test)] mod tests {}`
+- Go: `func TestXxx(t *testing.T)` (only if the file is a `_test.go`)
+- Lua: plenary `describe` / `it` if present, else `assert(...)` block
+
+The test is appended to the current file (scope is forced to `file`). Multi-file placement — creating or extending a separate `tests/test_foo.py`-style file — is a deferred v2.x feature; in the meantime you can move the generated test by hand.
 
 ### Suppress (`grS`)
 
