@@ -43,6 +43,18 @@ end, {
 	desc = "Add a suppression comment for an LSP diagnostic (no logic change)",
 })
 
+vim.api.nvim_create_user_command("SmartActionRefactor", function(args)
+	require("smart_actions").refactor({
+		scope = args.args ~= "" and args.args or nil,
+	})
+end, {
+	nargs = "?",
+	complete = function()
+		return { "line", "function", "file", "folder", "project", "auto", "visual", "ask" }
+	end,
+	desc = "Propose behaviour-preserving refactors for the code under cursor",
+})
+
 vim.api.nvim_create_user_command("SmartActionLastDiff", function()
 	local diff = vim.g.smart_actions_last_diff or ""
 	local title = vim.g.smart_actions_last_title or ""

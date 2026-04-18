@@ -94,6 +94,10 @@ hide the latency inside your reading time.
 				`# pyright: ignore[...]`, `// @ts-expect-error`,
 				`#[allow(...)]`, etc.). Does not modify logic.
 				Returns nothing when no diagnostics exist.
+:SmartActionRefactor [scope]	Propose behaviour-preserving refactors
+				(extract, inline, simplify, replace-mutation-
+				with-functional). Returns nothing when there
+				is no clear refactor opportunity.
 
 ==============================================================================
 5. Scopes					*smart-actions-scopes*

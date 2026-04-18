@@ -31,13 +31,14 @@ function M.setup(opts)
 	require("smart_actions.providers").preload_builtins()
 	require("smart_actions.context").preload_builtins()
 
-	-- Preload the category registry. `explain` and `suppress` always load
-	-- (always-available commands via :SmartActionExplain / Suppress; zero
-	-- cost unless invoked). Default-categories (grA picker) come from
-	-- config.categories.
+	-- Preload the category registry. `explain`, `suppress`, and `refactor`
+	-- always load (always-available commands via :SmartAction{Explain,
+	-- Suppress,Refactor}; zero cost unless invoked). Default-categories
+	-- (grA picker) come from config.categories.
 	local categories = require("smart_actions.categories")
 	categories.get("explain")
 	categories.get("suppress")
+	categories.get("refactor")
 	for _, id in ipairs(config.get().categories or {}) do
 		local cat, err = categories.get(id)
 		if not cat then
@@ -350,6 +351,17 @@ end
 function M.suppress(opts)
 	opts = opts or {}
 	opts.category_id = "suppress"
+	opts.visual_range = opts.visual_range or capture_visual_range()
+	return M.run(opts)
+end
+
+--- Run the `refactor` category. Proposes behaviour-preserving refactors
+--- (extract, inline, simplify, replace-mutation-with-functional). Returns
+--- nothing when the scope has no clear refactor opportunity.
+---@param opts table|nil { scope?: string, visual_range?: table }
+function M.refactor(opts)
+	opts = opts or {}
+	opts.category_id = "refactor"
 	opts.visual_range = opts.visual_range or capture_visual_range()
 	return M.run(opts)
 end

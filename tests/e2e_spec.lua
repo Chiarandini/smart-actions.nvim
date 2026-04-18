@@ -375,6 +375,25 @@ local cases = {
 		end,
 	},
 	{
+		-- Behaviour-preserving refactor: flatten nested if-chains into
+		-- early returns. Assertions verify the function signature and
+		-- core expression (sum(data) / len(data)) survive the refactor.
+		name = "refactor: flatten nested conditionals",
+		scope = "function", cursor_row = 3,
+		category_id = "refactor",
+		content = "def process(data):\n    if data is not None:\n        if len(data) > 0:\n            if isinstance(data, list):\n                return sum(data) / len(data)\n    return 0\n",
+		assert_fn = function(r)
+			H.check("refactor: >=1 action",    #r.actions >= 1, true)
+			H.check("refactor: apply ok",      r.apply_ok,      true)
+			H.check("refactor: buffer mutated", r.buf_after ~= r.buf_before, true)
+			-- Behaviour preservation: signature + core computation still present.
+			H.check("refactor: `def process` preserved",
+				r.buf_after and r.buf_after:find("def process%(data%)") ~= nil, true)
+			H.check("refactor: core expression preserved",
+				r.buf_after and r.buf_after:find("sum%(data%)") ~= nil, true)
+		end,
+	},
+	{
 		-- Suppress adds a language-appropriate comment without changing
 		-- code logic. We assert the diff contains a known suppression
 		-- marker (pyright-ignore, type-ignore, or noqa) — the exact form

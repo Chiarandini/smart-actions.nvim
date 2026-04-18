@@ -7,6 +7,7 @@ Three entry points:
 - **`grA`** — quickfix actions (bug fixes, edge-case hardening). Pick from an inline-diff picker.
 - **`grE`** (`:SmartActionExplain`) — prose explanation of a diagnostic / tricky code, streamed into a floating window. Pivot to quickfix with `a`/`<CR>`.
 - **`grS`** (`:SmartActionSuppress`) — language-appropriate suppression-comment actions for LSP diagnostics (pyright-ignore, ts-expect-error, allow, noqa, etc.) without modifying logic.
+- **`grR`** (`:SmartActionRefactor`) — behaviour-preserving refactors (extract, inline, simplify, replace-mutation-with-functional). Explicitly not a bug-fix or styling category.
 
 All three share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API auto-fallback), and the same pluggable context system.
 
@@ -23,10 +24,11 @@ v0.2.0. Categories shipped: `quickfix`, `explain`, `suppress`. Providers shipped
     { "grA", mode = { "n", "x" }, desc = "smart code [A]ction" },
     { "grE", function() require("smart_actions").explain()  end, desc = "smart action: [E]xplain" },
     { "grS", function() require("smart_actions").suppress() end, desc = "smart action: [S]uppress diagnostic" },
+    { "grR", function() require("smart_actions").refactor() end, desc = "smart action: [R]efactor" },
   },
   cmd = {
     "SmartAction", "SmartActionCancel", "SmartActionLastDiff",
-    "SmartActionExplain", "SmartActionSuppress",
+    "SmartActionExplain", "SmartActionSuppress", "SmartActionRefactor",
   },
   opts = {
     default_scope = "ask",       -- or "auto" / "line" / "function" / ...
@@ -67,6 +69,12 @@ Streams a prose explanation into a bordered floating window — useful when an L
 - `q` / `<Esc>` — dismiss without further action.
 
 The active keybindings are shown in the float's bottom border so they don't need to be memorised.
+
+### Suppress (`grS`)
+
+### Refactor (`grR`)
+
+Same picker UX as quickfix, but each action is a behaviour-preserving refactor — extract a helper, inline a variable, simplify a conditional, replace a mutation loop with a functional expression. Explicitly forbidden from this category: bug fixes (use `grA`), stylistic tweaks, renames, comments. Returns nothing when the scope has no clear refactor opportunity.
 
 ### Suppress (`grS`)
 
