@@ -1,0 +1,16 @@
+# Lua bytecode
+*.luac
+
+# Editor temp / swap
+.*.sw?
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Secrets users may drop in by mistake
+lua/secrets.lua
+
+# Local tempfiles sometimes created by tests
+tests/.tmp/

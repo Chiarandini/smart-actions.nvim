@@ -1,0 +1,279 @@
+*smart-actions.txt*	AI-suggested code actions for Neovim
+
+==============================================================================
+CONTENTS					*smart-actions-contents*
+
+1. Overview				|smart-actions-overview|
+2. Setup				|smart-actions-setup|
+3. Keymaps				|smart-actions-keymaps|
+4. Commands				|smart-actions-commands|
+5. Scopes				|smart-actions-scopes|
+6. Categories				|smart-actions-categories|
+7. Providers				|smart-actions-providers|
+8. Context				|smart-actions-context|
+9. Known limitations			|smart-actions-limits|
+
+==============================================================================
+1. Overview					*smart-actions-overview*
+
+smart-actions.nvim augments (not replaces) the stock LSP code-action flow
+on `gra` with AI-suggested actions on `grA`. Scope is configurable, actions
+are grouped into pluggable categories, and the provider layer resolves
+to the local Claude Code CLI first and the Anthropic Messages API as
+fallback.
+
+v1 ships the `quickfix` category only.
+
+==============================================================================
+2. Setup					*smart-actions-setup*
+
+>lua
+    require("smart_actions").setup({
+      default_scope = "ask",        -- or "auto" | "line" | "function" | ...
+      provider = nil,               -- nil = auto-detect
+      include_diagnostics = true,
+      keymap = "grA",
+    })
+<
+
+==============================================================================
+3. Keymaps					*smart-actions-keymaps*
+
+`grA` (normal, visual)		Run a smart action with the configured scope.
+				If `default_scope = "ask"`, the scope picker
+				is shown first.
+
+Inside the results picker: ~
+  <CR>		apply the hovered action (inline preview shows its diff)
+  e		open the diff in a scratch buffer for hand-editing;
+		 `:w` applies the edited patch, `:q!` cancels
+  <Esc>		cancel without applying
+
+Inside the edit-scratch buffer: ~
+  :w		apply the (possibly-edited) patch
+  :q!		cancel
+
+==============================================================================
+4. Commands					*smart-actions-commands*
+
+:SmartAction [scope]		Run a smart action, optionally forcing scope.
+:SmartActionCancel		Cancel the in-flight request.
+:SmartActionLastDiff		Show the last applied action's full diff text
+				in a vertical split. Useful when the picker's
+				inline preview (delta-rendered) hides +/-
+				markers and you want to confirm what the AI
+				actually produced.
+
+==============================================================================
+5. Scopes					*smart-actions-scopes*
+
+line | function | file | folder | project | auto | visual | ask
+
+Each concrete scope is also exposed as a callable so users can bind their
+own keys:
+>lua
+    vim.keymap.set("n", "<leader>Saf", function()
+      require("smart_actions").run_scope("function")
+    end, { desc = "smart action ([f]unction scope)" })
+<
+					*smart-actions-payload-caps*
+All scopes are bounded:
+  max_payload_chars = 6000    -- hard cap on scope.text
+  max_files         = 2000    -- cap on folder/project enumeration
+  max_file_bytes    = 200000  -- per-file read cap (~200 KB)
+
+When a cap fires:
+  - single-buffer scopes (line/function/file/visual) set scope.truncated = true
+    and append a "-- + N chars truncated (budget M) --" marker
+  - folder/project set scope.files_omitted > 0 (or -1 for the fallback walker)
+    and prepend a "-- + N file(s) beyond max_files --" notice
+  - the files[] list always reflects what WAS enumerated; truncated individual
+    files carry .truncated = true
+
+						*smart-actions-diagnostics*
+Diagnostics attached to a scope: ~
+
+Every Scope object carries two diagnostic fields:
+
+  scope.trigger.diagnostics   -- vim.diagnostic.get(bufnr, { lnum = cursor_row })
+                                 cursor-line only; the "focal" set
+  scope.diagnostics           -- vim.diagnostic.get(bufnr) filtered to entries
+                                 whose range overlaps scope.start .. scope.end_
+                                 (single-buffer scopes); for folder/project,
+                                 additionally walks loaded buffers whose path
+                                 is in scope.files
+
+Unloaded files yield no diagnostics — LSPs only analyze open buffers.
+
+The quickfix category surfaces both in the prompt, labeled:
+>
+    Diagnostic at cursor:
+      line N: [severity] message (source)
+
+    Other diagnostics in this scope:
+      line M: [severity] message (source)
+<
+Deduplication keyed on (lnum, message, source) ensures nothing appears twice.
+
+==============================================================================
+6. Categories					*smart-actions-categories*
+
+v1: `quickfix`.  Refactor, documentation, explain, tests, transform are
+registered via the same interface and planned for v2.
+
+==============================================================================
+7. Providers					*smart-actions-providers*
+
+Built-in:
+  claude_code	uses the local `claude` CLI (reuses your Claude Code auth)
+  anthropic	direct Messages API via curl + streaming SSE
+
+API key resolution (anthropic only):
+  1. `lua/secrets.lua`  -> `{ anthropic = { api_key = "..." } }`
+  2. `$ANTHROPIC_API_KEY`
+
+Pluggable: third-party plugins can register arbitrary providers — see
+`smart-actions-register-provider`.
+
+						*smart-actions-register-provider*
+>lua
+    require("smart_actions.providers").register({
+      id = "ollama",
+      display_name = "Ollama",
+      probe  = function() return vim.fn.executable("ollama") == 1 end,
+      stream = function(req, cb) ... return cancel_fn end,
+    })
+<
+
+`req.opts` is populated from `config.provider_config[id]` so each provider
+reads its own slot without polluting the top-level config.
+
+==============================================================================
+8. Context					*smart-actions-context*
+
+Context providers inject *project knowledge* — rules, idioms, house
+conventions — into the system prompt ahead of every `grA` request. They're
+separate from scope (the code itself) and categories (the task shape).
+
+Same registry pattern as providers/categories: five built-ins auto-load at
+setup(); users register their own via register().
+
+						*smart-actions-context-builtins*
+Built-ins: ~
+
+  id                 priority   triggers on
+  ─────────────────  ────────   ─────────────────────────────────────────
+  claude_md          90         any CLAUDE.md up the ancestor chain
+  agents_md          85         any AGENTS.md up the ancestor chain
+  cursorrules        80         any .cursorrules up the ancestor chain
+  neovim_plugin      70         plugin/*.lua | lua/<name>/init.lua | *.nvim
+  language_default   10         filetype is one of the known ones
+
+						*smart-actions-context-shape*
+Provider shape: ~
+
+A context provider is a table:
+>lua
+    {
+      id       = "my_rules",
+      priority = 100,                       -- higher wins on truncation
+      detect   = function(root) -> boolean, -- does this apply here?
+      gather   = function(scope) -> string, -- the block to inject
+    }
+<
+- `detect(root)` is cheap; called once per `grA`. Return false to skip.
+- `gather(scope)` returns the text block; return "" to skip (useful when
+  `detect` is coarse but `gather` is filetype-keyed).
+- `priority` defaults to 0; higher blocks are kept first when budget is
+  tight; lower blocks are dropped.
+
+						*smart-actions-context-register*
+Registering one: ~
+
+Drop this in your user-config `config = function(_, opts) ... end`:
+>lua
+    require("smart_actions.context").register({
+      id = "my_project", priority = 200,
+      detect = function(root)
+        return vim.uv.fs_stat(root .. "/.myproject") ~= nil
+      end,
+      gather = function(scope)
+        return "House rules: tabs not spaces, no emojis, prefer explicit returns."
+      end,
+    })
+<
+
+						*smart-actions-context-budget*
+Config knobs: ~
+
+>lua
+    context = {
+      enabled   = true,
+      max_chars = 4000,          -- total budget; lower-priority dropped first
+      allowlist = nil,           -- nil = all matching providers
+                                 -- or { "claude_md", "my_project" }
+      denylist  = nil,           -- e.g. { "language_default" } to mute one
+    }
+<
+When the budget is exceeded, the assembled string ends with:
+  `<!-- N context block(s) omitted (budget M chars) -->`
+
+						*smart-actions-context-native*
+Natively-handled context: ~
+
+Some AI providers already consume certain context sources on their own. The
+built-in `claude_code` provider declares:
+>lua
+    M.handles_natively = { "claude_md", "agents_md" }
+<
+which tells the context assembler to SKIP those sources when `claude_code`
+is the active provider (it auto-discovers them from the filesystem). If
+you're building a new provider that already handles e.g. `cursorrules`,
+add its id to your `handles_natively` list.
+
+						*smart-actions-context-inspect*
+Inspecting what the AI sees: ~
+
+>lua
+    :lua =require("smart_actions.context").assemble(
+           require("smart_actions.scope").get("function"),
+           require("smart_actions.providers").active())
+<
+Prints the exact `<project_context>` block that'll ride with the next
+request.
+
+==============================================================================
+9. Known limitations				*smart-actions-limits*
+
+What v1 deliberately does NOT do (planned for v2):
+
+  Multi-file edits ~
+    The applier targets the cursor's buffer only. folder/project scopes
+    widen what the AI SEES, but diffs that edit other files are silently
+    ignored. If you need a cross-file refactor, pick one file at a time.
+
+  Streaming picker entries ~
+    Actions are accumulated during the stream, then shown when the AI
+    finishes. Partial streaming into an already-open picker isn't wired
+    yet (Snacks.picker doesn't expose an append API as of this version).
+
+  Async file enumeration ~
+    folder/project scope's `rg --files` runs synchronously. Multi-million-
+    file monorepos can block nvim briefly while rg scans. Output size is
+    capped (max_files) but scan TIME isn't.
+
+  Additional AI providers ~
+    Only claude_code CLI and anthropic API ship. OpenAI / Ollama / Gemini
+    would each be one file under lua/smart_actions/providers/ — see
+    |smart-actions-register-provider|.
+
+  Action severity tiering ~
+    Every action shows at equal weight. A v2 "core" vs "optional" tier is
+    sketched in the plan but not implemented.
+
+  Request timeout guard ~
+    Configurable via config.provider_timeout_ms (default 120000 = 2 min).
+    Set to 0 to disable. Fires on_error("… timed out after Nms") and
+    clears the busy spinner.
+
+ vim:tw=78:ts=8:ft=help:norl:
