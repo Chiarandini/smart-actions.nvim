@@ -137,17 +137,23 @@ own keys:
 <
 					*smart-actions-payload-caps*
 All scopes are bounded:
-  max_payload_chars = 6000    -- hard cap on scope.text
-  max_files         = 2000    -- cap on folder/project enumeration
-  max_file_bytes    = 200000  -- per-file read cap (~200 KB)
+  max_payload_chars    = 6000    -- hard cap on scope.text
+  max_files            = 2000    -- cap on folder/project enumeration
+  max_file_bytes       = 200000  -- per-file read cap (~200 KB)
+  file_scan_timeout_ms = 500     -- max time rg may take to enumerate files
 
 When a cap fires:
   - single-buffer scopes (line/function/file/visual) set scope.truncated = true
     and append a "-- + N chars truncated (budget M) --" marker
-  - folder/project set scope.files_omitted > 0 (or -1 for the fallback walker)
+  - folder/project set scope.files_omitted > 0 (or -1 when the rg stream was
+    cut short by max_files or file_scan_timeout_ms, exact overflow unknown)
     and prepend a "-- + N file(s) beyond max_files --" notice
   - the files[] list always reflects what WAS enumerated; truncated individual
     files carry .truncated = true
+
+Folder/project enumeration uses `rg --files` streamed through vim.system
+and is killed the instant it has `max_files` paths or `file_scan_timeout_ms`
+has elapsed — whichever comes first — so nvim never freezes on huge trees.
 
 						*smart-actions-diagnostics*
 Diagnostics attached to a scope: ~
@@ -317,9 +323,10 @@ What v1 deliberately does NOT do (planned for v2):
     yet (Snacks.picker doesn't expose an append API as of this version).
 
   Async file enumeration ~
-    folder/project scope's `rg --files` runs synchronously. Multi-million-
-    file monorepos can block nvim briefly while rg scans. Output size is
-    capped (max_files) but scan TIME isn't.
+    folder/project scope's `rg --files` streams through vim.system and
+    kills rg the instant it has `max_files` paths or `file_scan_timeout_ms`
+    has elapsed. The main-thread wait is bounded by the timeout so nvim
+    never freezes on huge trees — see |smart-actions-payload-caps|.
 
   Additional AI providers ~
     Only claude_code CLI and anthropic API ship. OpenAI / Ollama / Gemini

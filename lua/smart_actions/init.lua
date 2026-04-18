@@ -61,10 +61,11 @@ end
 local function resolve_scope(name, visual_range)
 	local config = require("smart_actions.config").get()
 	local ok, scope = pcall(require("smart_actions.scope").get, name, {
-		visual_range      = visual_range,
-		max_payload_chars = config.max_payload_chars,
-		max_files         = config.max_files,
-		max_file_bytes    = config.max_file_bytes,
+		visual_range         = visual_range,
+		max_payload_chars    = config.max_payload_chars,
+		max_files            = config.max_files,
+		max_file_bytes       = config.max_file_bytes,
+		file_scan_timeout_ms = config.file_scan_timeout_ms,
 	})
 	if not ok then
 		notify("scope error: " .. tostring(scope), vim.log.levels.ERROR)

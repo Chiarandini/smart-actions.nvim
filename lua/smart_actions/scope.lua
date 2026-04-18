@@ -89,18 +89,71 @@ local function git_root(start_path)
 	return found and vim.fs.dirname(found) or nil
 end
 
---- Returns (paths, files_omitted). files_omitted is -1 when we know the
---- enumeration hit a cap but can't count the overflow exactly.
-local function list_files_rg(root, max_files)
+--- Returns (paths, files_omitted). files_omitted is -1 when the enumeration
+--- hit a cap or timed out before rg finished (exact overflow unknown).
+---
+--- Streams `rg --files` stdout via vim.system, accumulating paths until
+--- max_files is reached, at which point the rg process is SIGTERM'd. The
+--- main-thread wait is bounded by timeout_ms so nvim never freezes on a
+--- pathological repo. Returns nil if rg isn't on $PATH or errored — caller
+--- falls back to the pure-Lua walker.
+local function list_files_rg(root, max_files, timeout_ms)
 	if vim.fn.executable("rg") == 0 then return nil, 0 end
-	local out = vim.fn.systemlist({ "rg", "--files", "--hidden", "--glob", "!.git", root })
-	if vim.v.shell_error ~= 0 then return nil, 0 end
-	if max_files and #out > max_files then
-		local capped = {}
-		for i = 1, max_files do capped[i] = out[i] end
-		return capped, #out - max_files
+
+	local out = {}
+	local buf = ""
+	local done, killed = false, false
+	local exit_code = nil
+	local handle
+
+	handle = vim.system(
+		{ "rg", "--files", "--hidden", "--glob", "!.git", root },
+		{
+			text = true,
+			stdout = function(_, chunk)
+				if killed or not chunk then return end
+				buf = buf .. chunk
+				while true do
+					local nl = buf:find("\n", 1, true)
+					if not nl then break end
+					local line = buf:sub(1, nl - 1)
+					buf = buf:sub(nl + 1)
+					if line ~= "" then
+						out[#out + 1] = line
+						if #out >= max_files then
+							killed = true
+							pcall(function() handle:kill(15) end)
+							return
+						end
+					end
+				end
+			end,
+			stderr = false,
+		},
+		function(result) exit_code = result.code; done = true end
+	)
+
+	vim.wait(timeout_ms or 500, function() return done or killed end, 20)
+
+	if not done and not killed then
+		-- Timeout: kill rg and keep what we've enumerated so far.
+		killed = true
+		pcall(function() handle:kill(15) end)
 	end
-	return out, 0
+
+	-- Flush a trailing non-newline-terminated line (rare but possible if
+	-- we killed rg mid-flush).
+	if buf ~= "" and #out < max_files then
+		out[#out + 1] = buf
+	end
+
+	-- rg finished cleanly with a non-zero exit — treat as error, let the
+	-- walker fallback take over. (rg --files returns 0 even for empty
+	-- directories, so non-zero here is a real failure.)
+	if done and not killed and exit_code and exit_code ~= 0 then
+		return nil, 0
+	end
+	return out, killed and -1 or 0
 end
 
 local function list_files_walk(root, max_files)
@@ -132,8 +185,9 @@ local function list_files_walk(root, max_files)
 end
 
 local function list_files(root, opts)
-	local max_files = opts and opts.max_files or 2000
-	local rg, omitted = list_files_rg(root, max_files)
+	local max_files   = opts and opts.max_files or 2000
+	local timeout_ms  = opts and opts.file_scan_timeout_ms or 500
+	local rg, omitted = list_files_rg(root, max_files, timeout_ms)
 	if rg then return rg, omitted end
 	return list_files_walk(root, max_files)
 end
@@ -379,7 +433,8 @@ local RESOLVERS = {
 }
 
 ---@param name string  one of M.kinds
----@param opts table|nil  { bufnr, visual_range, max_payload_chars, max_files, max_file_bytes }
+---@param opts table|nil  { bufnr, visual_range, max_payload_chars, max_files,
+---                         max_file_bytes, file_scan_timeout_ms }
 function M.get(name, opts)
 	opts = opts or {}
 	local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()

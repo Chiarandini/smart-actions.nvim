@@ -15,7 +15,7 @@ All three share the same scope picker (line / function / file / folder / project
 
 ## Status
 
-v0.6.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Additional providers (OpenAI, Ollama) remain planned.
+v0.7.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Folder/project scope file enumeration now streams through `vim.system` with a bounded time budget (`file_scan_timeout_ms`, default 500ms) so huge monorepos no longer freeze nvim. Additional providers (OpenAI, Ollama) remain planned.
 
 ## Install
 

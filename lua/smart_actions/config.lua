@@ -45,6 +45,14 @@ local defaults = {
 	max_files           = 2000,    -- hard cap on enumeration for folder/project
 	max_file_bytes      = 200000,  -- per-file read cap (~200 KB)
 
+	-- Upper bound on how long folder/project scope will block nvim while
+	-- enumerating files via `rg --files`. Enumeration streams stdout and
+	-- early-exits once it has `max_files` paths; this cap protects against
+	-- pathological repos (cold fs cache, NFS, million-file monorepos).
+	-- On timeout or cap-hit, the rg process is killed and scope.files_omitted
+	-- becomes -1 (meaning "unknown, there may be more").
+	file_scan_timeout_ms = 500,
+
 	-- Auto-cancel the AI request if it hasn't settled after this many ms.
 	-- Guards against hangs (network stalls, provider freezes). Set to 0 to
 	-- disable. The cancel fires on_error("...timed out after Nms") and the
