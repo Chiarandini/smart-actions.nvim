@@ -19,6 +19,30 @@ vim.api.nvim_create_user_command("SmartActionCancel", function()
 	require("smart_actions").cancel()
 end, { desc = "Cancel the in-flight smart action" })
 
+vim.api.nvim_create_user_command("SmartActionExplain", function(args)
+	require("smart_actions").explain({
+		scope = args.args ~= "" and args.args or nil,
+	})
+end, {
+	nargs = "?",
+	complete = function()
+		return { "line", "function", "file", "folder", "project", "auto", "visual", "ask" }
+	end,
+	desc = "Explain the code under cursor (streams into a floating window)",
+})
+
+vim.api.nvim_create_user_command("SmartActionSuppress", function(args)
+	require("smart_actions").suppress({
+		scope = args.args ~= "" and args.args or nil,
+	})
+end, {
+	nargs = "?",
+	complete = function()
+		return { "line", "function", "file", "folder", "project", "auto", "visual", "ask" }
+	end,
+	desc = "Add a suppression comment for an LSP diagnostic (no logic change)",
+})
+
 vim.api.nvim_create_user_command("SmartActionLastDiff", function()
 	local diff = vim.g.smart_actions_last_diff or ""
 	local title = vim.g.smart_actions_last_title or ""

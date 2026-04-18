@@ -32,8 +32,11 @@ function M.edit(action, target_bufnr, on_confirm)
 			local edited = table.concat(
 				vim.api.nvim_buf_get_lines(edit_buf, 0, -1, false), "\n")
 			vim.bo[edit_buf].modified = false
-			pcall(vim.cmd, "bwipeout!")
+			-- Settle with the edited patch BEFORE wiping the buffer.
+			-- `bwipeout!` synchronously fires BufWipeout, which would
+			-- otherwise settle with (false, nil) first and lose our edits.
 			settle(true, edited)
+			pcall(vim.cmd, "bwipeout!")
 		end,
 	})
 	vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {

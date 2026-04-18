@@ -45,13 +45,35 @@ v1 ships the `quickfix` category only.
 
 Inside the results picker: ~
   <CR>		apply the hovered action (inline preview shows its diff)
-  e		open the diff in a scratch buffer for hand-editing;
+  <C-e>		open the diff in a scratch buffer for hand-editing;
 		 `:w` applies the edited patch, `:q!` cancels
   <Esc>		cancel without applying
 
 Inside the edit-scratch buffer: ~
   :w		apply the (possibly-edited) patch
   :q!		cancel
+
+Inside the explain float: ~
+  a / <CR>	close the float and run the default action category
+		(quickfix) on the same scope — i.e. "OK, now fix it"
+  q / <Esc>	close the float without further action; cancels the
+		eager background action if one is running
+All live keymaps are also shown in the float's bottom border.
+
+						*smart-actions-eager*
+Eager action after explain (opt-in): ~
+
+When `eager_action_after_explain = true` in setup(), the default action
+category (e.g. quickfix) starts streaming in the background the moment
+an explain stream finishes. The explain float stays open for reading.
+If the user then presses `a`/<CR>, the picker opens immediately (or as
+soon as the background stream completes). If the user presses `q`/<Esc>,
+the in-flight background action is cancelled.
+
+Trade-off: token cost roughly doubles for any explain invocation the
+user dismisses before the background action finishes. Leave disabled
+(the default) unless you frequently chain explain → fix and want to
+hide the latency inside your reading time.
 
 ==============================================================================
 4. Commands					*smart-actions-commands*
@@ -63,6 +85,15 @@ Inside the edit-scratch buffer: ~
 				inline preview (delta-rendered) hides +/-
 				markers and you want to confirm what the AI
 				actually produced.
+:SmartActionExplain [scope]	Explain the code/diagnostic under cursor
+				(prose, streamed into a floating window; no
+				diff, no apply). Complements quickfix: tells
+				you WHY something is off instead of fixing it.
+:SmartActionSuppress [scope]	Produce suppression-comment actions for LSP
+				diagnostics (language-appropriate:
+				`# pyright: ignore[...]`, `// @ts-expect-error`,
+				`#[allow(...)]`, etc.). Does not modify logic.
+				Returns nothing when no diagnostics exist.
 
 ==============================================================================
 5. Scopes					*smart-actions-scopes*

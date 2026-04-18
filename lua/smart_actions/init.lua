@@ -31,7 +31,13 @@ function M.setup(opts)
 	require("smart_actions.providers").preload_builtins()
 	require("smart_actions.context").preload_builtins()
 
+	-- Preload the category registry. `explain` and `suppress` always load
+	-- (always-available commands via :SmartActionExplain / Suppress; zero
+	-- cost unless invoked). Default-categories (grA picker) come from
+	-- config.categories.
 	local categories = require("smart_actions.categories")
+	categories.get("explain")
+	categories.get("suppress")
 	for _, id in ipairs(config.get().categories or {}) do
 		local cat, err = categories.get(id)
 		if not cat then
@@ -119,7 +125,21 @@ local function dispatch_picker(bufnr, scope, actions)
 	end)
 end
 
-local function run_pipeline(scope_name, visual_range)
+local function stream_request(category, request, scope, bufnr, on_text_extra)
+	local busy = require("smart_actions.busy")
+	busy.increment(bufnr)
+	return require("smart_actions.providers").stream(request, {
+		on_text  = on_text_extra,
+		on_done  = function() busy.decrement(bufnr) end,
+		on_error = function(err)
+			busy.decrement(bufnr)
+			notify("AI error: " .. tostring(err), vim.log.levels.ERROR)
+		end,
+	}), busy
+end
+
+local function run_pipeline(scope_name, visual_range, opts)
+	opts = opts or {}
 	local config = require("smart_actions.config").get()
 	local scope  = resolve_scope(scope_name, visual_range)
 	if not scope then return end
@@ -130,10 +150,22 @@ local function run_pipeline(scope_name, visual_range)
 		return
 	end
 
-	local category = pick_category()
-	if not category then
-		notify("no enabled category loaded", vim.log.levels.ERROR)
-		return
+	-- Category resolution: explicit opts.category_id > first enabled category.
+	local categories = require("smart_actions.categories")
+	local category
+	if opts.category_id then
+		category = categories.get(opts.category_id)
+		if not category then
+			notify("category '" .. opts.category_id .. "' not loaded; "
+				.. "add it to config.categories", vim.log.levels.ERROR)
+			return
+		end
+	else
+		category = pick_category()
+		if not category then
+			notify("no enabled category loaded", vim.log.levels.ERROR)
+			return
+		end
 	end
 
 	announce(scope, provider, category)
@@ -149,8 +181,116 @@ local function run_pipeline(scope_name, visual_range)
 
 	local bufnr = scope.bufnr
 	local busy  = require("smart_actions.busy")
-	busy.increment(bufnr)
 
+	if category.output_kind == "text" then
+		-- Prose category: stream tokens into a floating window. If this is
+		-- `explain` (or any non-default action category), wire `a`/<CR> in
+		-- the float to run the default category on the same scope — so the
+		-- user can read why, then fix.
+		--
+		-- With `eager_action_after_explain` enabled, the default category
+		-- starts streaming in the background the moment the explain stream
+		-- finishes — hiding the latency inside the user's reading time.
+		local conf = require("smart_actions.config").get()
+		local default_cat_id = (conf.categories or {})[1]
+		local eager_enabled = conf.eager_action_after_explain
+			and category.id ~= default_cat_id and default_cat_id ~= nil
+
+		local eager = {
+			started = false, done = false, cancelled = false,
+			actions = nil, pending_pivot = false, picker_opened = false,
+		}
+
+		local function open_action_picker()
+			if eager.picker_opened then return end
+			eager.picker_opened = true
+			if eager.actions and #eager.actions > 0 then
+				dispatch_picker(bufnr, scope, eager.actions)
+			else
+				notify("no actions produced (AI returned nothing parseable)",
+					vim.log.levels.WARN)
+			end
+		end
+
+		local function start_eager()
+			if eager.started then return end
+			eager.started = true
+
+			local act_cat = require("smart_actions.categories").get(default_cat_id)
+			if not act_cat then eager.done = true; eager.actions = {}; return end
+
+			local act_req, act_parser = act_cat.build(scope, {
+				include_diagnostics = conf.include_diagnostics,
+			})
+			local ctx = require("smart_actions.context").assemble(scope, provider)
+			if ctx ~= "" then act_req.system = act_req.system .. "\n\n" .. ctx end
+
+			busy.increment(bufnr)
+			require("smart_actions.providers").stream(act_req, {
+				on_text  = function(chunk) act_parser:feed(chunk) end,
+				on_done  = function()
+					busy.decrement(bufnr)
+					if eager.cancelled then return end
+					eager.done    = true
+					eager.actions = act_parser.actions or {}
+					if eager.pending_pivot then open_action_picker() end
+				end,
+				on_error = function(err)
+					busy.decrement(bufnr)
+					if not eager.cancelled then
+						notify("eager action error: " .. tostring(err), vim.log.levels.WARN)
+					end
+					eager.done    = true
+					eager.actions = {}
+					if eager.pending_pivot then open_action_picker() end
+				end,
+			})
+		end
+
+		local float_opts = {}
+		if category.id ~= default_cat_id and default_cat_id ~= nil then
+			float_opts.on_action = function()
+				if eager.done then
+					open_action_picker()
+				elseif eager.started then
+					eager.pending_pivot = true
+					notify(default_cat_id .. " streaming, picker will open when ready…")
+				else
+					-- Eager disabled or didn't start — fall back to a fresh run.
+					require("smart_actions.providers").cancel_active()
+					M.run({ scope = scope_name, visual_range = visual_range })
+				end
+			end
+			float_opts.on_dismiss = function()
+				-- User explicitly dismissed. Cancel whatever stream is in
+				-- flight (explain mid-stream OR the eager background action).
+				eager.cancelled = true
+				require("smart_actions.providers").cancel_active()
+			end
+		end
+
+		local float = require("smart_actions.ui.explain").open(
+			" " .. (category.label or category.id) .. " ", float_opts)
+		parser.on_text = function(chunk) float.feed(chunk) end
+		busy.increment(bufnr)
+		require("smart_actions.providers").stream(request, {
+			on_text  = function(chunk) parser:feed(chunk) end,
+			on_done  = function()
+				busy.decrement(bufnr)
+				float.done()
+				if eager_enabled then start_eager() end
+			end,
+			on_error = function(err)
+				busy.decrement(bufnr)
+				notify("AI error: " .. tostring(err), vim.log.levels.ERROR)
+				float.close()
+			end,
+		})
+		return
+	end
+
+	-- Default: actions category → picker → apply/edit.
+	busy.increment(bufnr)
 	require("smart_actions.providers").stream(request, {
 		on_text = function(chunk) parser:feed(chunk) end,
 		on_done = function()
@@ -172,7 +312,7 @@ end
 
 -- ─── Public API ────────────────────────────────────────────────────────
 
----@param opts table|nil { scope?: string, visual_range?: table }
+---@param opts table|nil { scope?: string, category_id?: string, visual_range?: table }
 function M.run(opts)
 	opts = opts or {}
 	local config = require("smart_actions.config").get()
@@ -181,16 +321,37 @@ function M.run(opts)
 
 	if name == "ask" then
 		require("smart_actions.ui.scope_picker").choose(function(chosen)
-			if chosen then run_pipeline(chosen, visual_range) end
+			if chosen then run_pipeline(chosen, visual_range, opts) end
 		end)
 		return
 	end
-	run_pipeline(name, visual_range)
+	run_pipeline(name, visual_range, opts)
 end
 
 ---@param scope string
 function M.run_scope(scope)
 	return M.run({ scope = scope, visual_range = capture_visual_range() })
+end
+
+--- Run the `explain` category. Streams an explanation into a floating
+--- window instead of producing actions.
+---@param opts table|nil { scope?: string, visual_range?: table }
+function M.explain(opts)
+	opts = opts or {}
+	opts.category_id = "explain"
+	opts.visual_range = opts.visual_range or capture_visual_range()
+	return M.run(opts)
+end
+
+--- Run the `suppress` category. Produces actions that add a language-
+--- appropriate suppression comment for an LSP diagnostic, without
+--- modifying code logic. Returns nothing when there are no diagnostics.
+---@param opts table|nil { scope?: string, visual_range?: table }
+function M.suppress(opts)
+	opts = opts or {}
+	opts.category_id = "suppress"
+	opts.visual_range = opts.visual_range or capture_visual_range()
+	return M.run(opts)
 end
 
 function M.cancel()

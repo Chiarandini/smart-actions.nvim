@@ -51,6 +51,15 @@ local defaults = {
 	-- busy spinner clears normally.
 	provider_timeout_ms = 120000,  -- 2 minutes
 
+	-- When true, the moment an explain stream finishes, quickfix starts in
+	-- the background while the user is still reading. If the user presses
+	-- a/<CR> in the explain float, actions are (or soon will be) ready;
+	-- if they press q/<Esc>, the in-flight quickfix is cancelled.
+	-- Trade-off: doubles token cost whenever the user dismisses BEFORE
+	-- the background quickfix completes. Leave false unless you frequently
+	-- explain→fix and want to hide the latency.
+	eager_action_after_explain = false,
+
 	keymap = "grA", -- set false to skip the default binding
 }
 

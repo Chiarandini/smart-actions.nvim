@@ -27,8 +27,22 @@ local function open_snacks(actions, on_finish)
 		}
 	end
 
+	-- Two-phase settle to avoid races between picker teardown and new UI.
+	--
+	-- Sequence:
+	--   1. User hits <CR> (confirm) or <C-e> (smart_edit). We record
+	--      `intent` synchronously, then call picker:close().
+	--   2. picker:close() fires on_close synchronously. on_close schedules
+	--      the actual on_finish for the NEXT tick via vim.schedule.
+	--   3. By the time on_finish runs, the picker's windows/buffers are
+	--      fully torn down, so opening the edit scratch buffer doesn't
+	--      collide with Snacks' BufWinEnter autocmds.
+	--
+	-- Cancellation path (Esc): intent stays nil; on_close schedules
+	-- settle(nil, nil) which signals "user cancelled" to the caller.
+	local intent = nil
 	local settled = false
-	local function settle(action, mode)
+	local function settle_once(action, mode)
 		if settled then return end
 		settled = true
 		if on_finish then on_finish(action, mode) end
@@ -48,28 +62,38 @@ local function open_snacks(actions, on_finish)
 		end,
 		preview = "diff",
 		confirm = function(picker, item)
-			-- Settle BEFORE close(). picker:close() fires on_close synchronously,
-			-- and on_close calls settle(nil, nil) to handle cancellation — if we
-			-- close first, the cancellation settle wins and "apply" is lost.
-			if item and item.action then settle(item.action, "apply") end
+			if item and item.action then
+				intent = { action = item.action, mode = "apply" }
+			end
 			picker:close()
 		end,
 		actions = {
 			smart_edit = function(picker)
 				local item = picker:current()
 				if not item or not item.action then return end
-				settle(item.action, "edit")
+				intent = { action = item.action, mode = "edit" }
 				picker:close()
 			end,
 		},
 		win = {
 			input = {
 				keys = {
-					["e"] = { "smart_edit", mode = { "n", "i" }, desc = "open diff for editing" },
+					-- <C-e>, not `e`, so typing "e" in the fuzzy input doesn't
+					-- trigger edit (would break searching for any action with
+					-- an "e" in its title).
+					["<C-e>"] = { "smart_edit", mode = { "n", "i" }, desc = "open diff for editing" },
 				},
 			},
 		},
-		on_close = function() settle(nil, nil) end,
+		on_close = function()
+			vim.schedule(function()
+				if intent then
+					settle_once(intent.action, intent.mode)
+				else
+					settle_once(nil, nil)
+				end
+			end)
+		end,
 	})
 end
 

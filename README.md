@@ -39,7 +39,7 @@ Optional but recommended:
 `grA` → scope picker (if `default_scope = "ask"`) → AI streams → results picker opens with all actions:
 
 - `<CR>` applies the highlighted action's diff.
-- `e` opens the diff in a scratch buffer for hand-editing; `:w` applies, `:q!` cancels.
+- `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies, `:q!` cancels.
 - `<Esc>` dismisses without applying.
 
 Every apply is a single undo unit — `u` reverts the full action.
