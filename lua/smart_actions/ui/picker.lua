@@ -5,10 +5,15 @@
 -- snacks isn't installed.
 --
 -- Callback contract:
---   on_finish(action, mode) where mode is:
---     "apply"  → user confirmed; caller should apply action.diff
---     "edit"   → user pressed `e`; caller should open scratch editor
---     nil      → user cancelled (action will also be nil)
+--   on_finish(actions, mode) where
+--     actions = array of Action records (length 1 for single-apply and
+--               for edit; length >= 1 for multi-select apply)
+--     mode is one of:
+--       "apply" → user confirmed; caller should apply each action.diff
+--                 sequentially with undojoin and skip-on-conflict
+--       "edit"  → user pressed <C-e>; caller should open the scratch
+--                 editor for actions[1] only (edit is inherently single)
+--       nil     → user cancelled (actions will also be nil)
 
 local M = {}
 
@@ -42,10 +47,10 @@ local function open_snacks(actions, on_finish)
 	-- settle(nil, nil) which signals "user cancelled" to the caller.
 	local intent = nil
 	local settled = false
-	local function settle_once(action, mode)
+	local function settle_once(actions, mode)
 		if settled then return end
 		settled = true
-		if on_finish then on_finish(action, mode) end
+		if on_finish then on_finish(actions, mode) end
 	end
 
 	_G.Snacks.picker({
@@ -61,17 +66,26 @@ local function open_snacks(actions, on_finish)
 			}
 		end,
 		preview = "diff",
-		confirm = function(picker, item)
-			if item and item.action then
-				intent = { action = item.action, mode = "apply" }
+		confirm = function(picker, _item)
+			-- Tab-toggled multi-select: picker:selected({fallback=true})
+			-- returns the Tab-marked items, or the currently-hovered item
+			-- if nothing is Tab-marked. Preserves Tab-selection order.
+			local selected = picker:selected({ fallback = true })
+			local actions = {}
+			for _, it in ipairs(selected) do
+				if it and it.action then actions[#actions + 1] = it.action end
 			end
+			if #actions > 0 then intent = { actions = actions, mode = "apply" } end
 			picker:close()
 		end,
 		actions = {
 			smart_edit = function(picker)
+				-- Edit is inherently single-item (editing a patch bundle
+				-- makes no sense). Use the currently-hovered action even
+				-- if the user has Tab-marked others.
 				local item = picker:current()
 				if not item or not item.action then return end
-				intent = { action = item.action, mode = "edit" }
+				intent = { actions = { item.action }, mode = "edit" }
 				picker:close()
 			end,
 		},
@@ -88,7 +102,7 @@ local function open_snacks(actions, on_finish)
 		on_close = function()
 			vim.schedule(function()
 				if intent then
-					settle_once(intent.action, intent.mode)
+					settle_once(intent.actions, intent.mode)
 				else
 					settle_once(nil, nil)
 				end
@@ -103,16 +117,20 @@ local function open_vanilla(actions, on_finish)
 		if #desc > 80 then desc = desc:sub(1, 77) .. "..." end
 		return string.format("[%s] %s — %s", a.category or "?", a.title or "(untitled)", desc)
 	end
+	-- Vanilla vim.ui.select is single-select only; wrap the one choice in
+	-- a singleton list so callers get a uniform `actions[]` contract.
 	vim.ui.select(actions, {
 		prompt      = "Smart actions",
 		format_item = fmt,
 	}, function(choice)
-		if on_finish then on_finish(choice, choice and "apply" or nil) end
+		if on_finish then
+			on_finish(choice and { choice } or nil, choice and "apply" or nil)
+		end
 	end)
 end
 
 ---@param actions table[]
----@param on_finish fun(action: table|nil, mode: "apply"|"edit"|nil)
+---@param on_finish fun(actions: table[]|nil, mode: "apply"|"edit"|nil)
 function M.open(actions, on_finish)
 	if not actions or #actions == 0 then
 		if on_finish then on_finish(nil, nil) end

@@ -133,4 +133,33 @@ H.with_buf({
 		vim.api.nvim_buf_get_lines(buf, 5, 6, false)[1], "  return 'bye ' .. name")
 end)
 
+-- apply_many: independent edits, both apply cleanly, single undo reverts all.
+H.with_buf({ "line 1", "line 2", "line 3", "line 4" }, function(buf)
+	local p1 = "@@ -2,1 +2,1 @@\n-line 2\n+line 2 NEW\n"
+	local p2 = "@@ -4,1 +4,1 @@\n-line 4\n+line 4 NEW\n"
+	local applied, skipped = diff.apply_many({ p1, p2 }, buf, 0, 3)
+	H.check("apply_many: both applied", applied, 2)
+	H.check("apply_many: no skips",     #skipped, 0)
+	H.check("apply_many: buffer after",
+		vim.api.nvim_buf_get_lines(buf, 0, -1, false),
+		{ "line 1", "line 2 NEW", "line 3", "line 4 NEW" })
+end)
+
+-- apply_many: two actions that both try to modify line 2. First applies,
+-- second's context ("line 2") no longer exists, anchor search fails, skip.
+H.with_buf({ "alpha", "line 2", "beta", "line 2", "gamma" }, function(buf)
+	local p1 = "@@ -2,1 +2,1 @@\n-line 2\n+line 2 VERSION A\n"
+	-- p2 tries to change the FIRST "line 2" to VERSION B. Post-p1, the
+	-- first line 2 is gone (replaced by "line 2 VERSION A"), so p2's
+	-- context cannot match at row 1. The SECOND "line 2" at row 3 is a
+	-- valid anchor (fuzzy search ±5), so p2 actually lands there.
+	-- For a true skip, the diff must have context lines that are all
+	-- mutated by p1. We set up p2 with narrower context that p1 destroyed.
+	local p2 = "@@ -2,2 +2,2 @@\n-line 2\n alpha\n+line 2 VERSION B\n alpha\n"
+	local applied, skipped = diff.apply_many({ p1, p2 }, buf, 0, 4)
+	H.check("apply_many: first applied", applied, 1)
+	H.check("apply_many: second skipped", #skipped, 1)
+	H.check("apply_many: skipped index",  skipped[1].index, 2)
+end)
+
 H.summary()

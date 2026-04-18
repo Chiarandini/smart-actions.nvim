@@ -197,4 +197,24 @@ function M.apply_to_buffer(patch, bufnr, scope_start_row, scope_end_row)
 	return true
 end
 
+--- Apply multiple unified diffs sequentially, joining them into a single
+--- undo entry. A failed hunk (out of scope, no anchor match) is SKIPPED
+--- rather than aborting the whole batch — matches common `patch` / `git
+--- apply` semantics when multiple patches partially conflict.
+--- Returns (applied_count, skipped_array). `skipped_array` entries are
+--- `{ index, err }` so the caller can report which of the inputs failed.
+function M.apply_many(patches, bufnr, start_row, end_row)
+	local applied, skipped = 0, {}
+	for i, patch in ipairs(patches) do
+		if applied > 0 then pcall(vim.cmd, "silent! undojoin") end
+		local ok, err = M.apply_to_buffer(patch, bufnr, start_row, end_row)
+		if ok then
+			applied = applied + 1
+		else
+			skipped[#skipped + 1] = { index = i, err = err }
+		end
+	end
+	return applied, skipped
+end
+
 return M

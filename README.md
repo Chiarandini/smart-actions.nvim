@@ -58,11 +58,12 @@ Optional but recommended:
 
 Scope picker (if `default_scope = "ask"`) → AI streams → results picker opens with all actions, inline diff preview in the side pane:
 
-- `<CR>` applies the highlighted action's diff.
-- `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies the (possibly edited) patch, `:q!` cancels.
+- `<CR>` applies the highlighted action's diff (or all Tab-selected actions — see below).
+- `<Tab>` / `<S-Tab>` toggle-select actions for multi-apply. Selected actions apply sequentially with a single undo unit; any whose context can't land on the mutated buffer is silently skipped and reported ("N of M applied, K skipped").
+- `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies the (possibly edited) patch, `:q!` cancels. Always targets the hovered action, even if others are Tab-selected.
 - `<Esc>` dismisses without applying.
 
-Every apply is a single undo unit — `u` reverts the full action cleanly. The applier is *anchor-by-context*: if the AI's hunk header is slightly off, hunks relocate to where the body's context lines actually match the buffer (like `git apply`), so minor drift doesn't corrupt the edit.
+Every apply is a single undo unit — `u` reverts the full action cleanly (including multi-select bundles). The applier is *anchor-by-context*: if the AI's hunk header is slightly off, hunks relocate to where the body's context lines actually match the buffer (like `git apply`), so minor drift doesn't corrupt the edit.
 
 ### Explain (`grE`)
 

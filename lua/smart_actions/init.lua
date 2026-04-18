@@ -113,15 +113,46 @@ local function apply_patch(bufnr, scope, action, patch)
 	end
 end
 
-local function dispatch_picker(bufnr, scope, actions)
-	require("smart_actions.ui.picker").open(actions, function(chosen, mode)
-		if not chosen or not mode then return end
+local function apply_many(bufnr, scope, actions)
+	local patches = {}
+	for _, a in ipairs(actions) do patches[#patches + 1] = a.diff end
+	local start_row = scope.start and scope.start.row or 0
+	local end_row   = scope.end_ and scope.end_.row
+	local applied, skipped = require("smart_actions.diff").apply_many(
+		patches, bufnr, start_row, end_row)
+	-- Stash a readable summary for :SmartActionLastDiff; multi-apply doesn't
+	-- have a single canonical patch, so we concatenate with markers.
+	local parts = {}
+	for i, a in ipairs(actions) do
+		parts[#parts + 1] = string.format("# [%d/%d] %s\n%s",
+			i, #actions, a.title or "(untitled)", a.diff or "")
+	end
+	vim.g.smart_actions_last_diff  = table.concat(parts, "\n")
+	vim.g.smart_actions_last_title = string.format("multi-apply: %d action(s)", #actions)
+	if #skipped == 0 then
+		notify(string.format("applied %d actions", applied))
+	else
+		notify(string.format("%d of %d applied; %d skipped due to conflicts",
+			applied, #actions, #skipped), vim.log.levels.WARN)
+	end
+end
+
+local function dispatch_picker(bufnr, scope, actions_list)
+	require("smart_actions.ui.picker").open(actions_list, function(chosen, mode)
+		if not chosen or #chosen == 0 or not mode then return end
 		if mode == "apply" then
-			apply_patch(bufnr, scope, chosen, chosen.diff)
+			if #chosen == 1 then
+				apply_patch(bufnr, scope, chosen[1], chosen[1].diff)
+			else
+				apply_many(bufnr, scope, chosen)
+			end
 		elseif mode == "edit" then
-			require("smart_actions.ui.preview").edit(chosen, bufnr,
+			-- Edit is single-action by construction; picker guarantees
+			-- #chosen == 1 when mode == "edit".
+			local single = chosen[1]
+			require("smart_actions.ui.preview").edit(single, bufnr,
 				function(accepted, edited_patch)
-					if accepted then apply_patch(bufnr, scope, chosen, edited_patch) end
+					if accepted then apply_patch(bufnr, scope, single, edited_patch) end
 				end)
 		end
 	end)

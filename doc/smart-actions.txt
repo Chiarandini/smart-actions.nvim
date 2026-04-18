@@ -44,9 +44,17 @@ v1 ships the `quickfix` category only.
 				is shown first.
 
 Inside the results picker: ~
-  <CR>		apply the hovered action (inline preview shows its diff)
+  <CR>		apply the selected action(s). If nothing is Tab-marked,
+		applies the hovered one. If one or more actions were
+		marked with <Tab>, applies them all sequentially with a
+		single undo unit; any hunk that can't land on the mutated
+		buffer is SKIPPED and reported (N of M applied, K skipped).
+  <Tab>		toggle-select the hovered action for multi-apply.
+		<S-Tab> toggles and moves up.
   <C-e>		open the diff in a scratch buffer for hand-editing;
-		 `:w` applies the edited patch, `:q!` cancels
+		 `:w` applies the edited patch, `:q!` cancels. Always
+		targets the HOVERED action, not the multi-select set —
+		editing a bundle of diffs doesn't make sense.
   <Esc>		cancel without applying
 
 Inside the edit-scratch buffer: ~
