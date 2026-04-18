@@ -375,6 +375,41 @@ local cases = {
 		end,
 	},
 	{
+		-- Review: broad feedback — expect at least one action; assert
+		-- structural properties (severity tag in title, rationale > 50 chars)
+		-- without pinning exact content, since AI output varies.
+		name = "review: returns items with severity tags",
+		scope = "function", cursor_row = 4,
+		category_id = "review",
+		-- Fixture packed with review-worthy content: cryptic single-letter names,
+		-- magic numbers, non-Pythonic loop, no type hints, no docstring. Any
+		-- one of these should trip at least one [nit]/[suggestion] item.
+		content = "def calc(d, r):\n"
+			.. "    total = 0\n"
+			.. "    for i in range(len(d)):\n"
+			.. "        if d[i] > 0.05:\n"
+			.. "            total = total + d[i] * r * 86400\n"
+			.. "    return total\n",
+		assert_fn = function(r)
+			H.check("review: >=1 action", #r.actions >= 1, true)
+			-- At least one title should be tagged with a known severity.
+			local has_tag = false
+			for _, a in ipairs(r.actions) do
+				local t = a.title or ""
+				if t:match("%[blocker%]") or t:match("%[suggestion%]")
+					or t:match("%[nit%]") or t:match("%[question%]") then
+					has_tag = true
+					break
+				end
+			end
+			H.check("review: severity tag in at least one title", has_tag, true)
+			-- First item must have a non-trivial rationale.
+			local first = r.actions[1] or {}
+			H.check("review: first item has rationale >= 30 chars",
+				(first.description or "") ~= "" and #first.description >= 30, true)
+		end,
+	},
+	{
 		-- Tests category: generate a test for the function at cursor.
 		-- Scope is always file-level regardless of what we pass; assert the
 		-- diff appends a test (buffer grows, contains a `test_` or

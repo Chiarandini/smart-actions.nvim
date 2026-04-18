@@ -115,6 +115,13 @@ hide the latency inside your reading time.
 				Multi-file test-file placement is a deferred
 				v2.x feature; for now the test is appended
 				to the current file and can be hand-moved.
+:SmartActionReview [scope]	Broad code review — returns a mix of
+				blockers, suggestions, nits, and questions.
+				Items may be fixes (have a diff) or
+				observations (rationale-only). Observations
+				surface in the preview pane as markdown and
+				don't apply when confirmed; they surface
+				their rationale as a notification instead.
 
 ==============================================================================
 5. Scopes					*smart-actions-scopes*

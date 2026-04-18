@@ -40,6 +40,7 @@ function M.setup(opts)
 	categories.get("suppress")
 	categories.get("refactor")
 	categories.get("tests")
+	categories.get("review")
 	for _, id in ipairs(config.get().categories or {}) do
 		local cat, err = categories.get(id)
 		if not cat then
@@ -113,9 +114,32 @@ local function apply_patch(bufnr, scope, action, patch)
 	end
 end
 
+local function show_observation(a)
+	-- For review-category rationale-only items (no diff). Surface the
+	-- concern as a notification so the user has a take-away even without
+	-- an apply step.
+	local body = a.description or "(no rationale)"
+	notify((a.title or "(untitled)") .. "\n  " .. body)
+end
+
 local function apply_many(bufnr, scope, actions)
+	-- Split into fixables and observations; only the former hit the
+	-- applier, the latter surface as notifications.
+	local fixables, observations = {}, {}
+	for _, a in ipairs(actions) do
+		if a.diff and a.diff ~= "" then
+			fixables[#fixables + 1] = a
+		else
+			observations[#observations + 1] = a
+		end
+	end
+
+	for _, o in ipairs(observations) do show_observation(o) end
+
+	if #fixables == 0 then return end
+
 	local patches = {}
-	for _, a in ipairs(actions) do patches[#patches + 1] = a.diff end
+	for _, a in ipairs(fixables) do patches[#patches + 1] = a.diff end
 	local start_row = scope.start and scope.start.row or 0
 	local end_row   = scope.end_ and scope.end_.row
 	local applied, skipped = require("smart_actions.diff").apply_many(
@@ -123,17 +147,17 @@ local function apply_many(bufnr, scope, actions)
 	-- Stash a readable summary for :SmartActionLastDiff; multi-apply doesn't
 	-- have a single canonical patch, so we concatenate with markers.
 	local parts = {}
-	for i, a in ipairs(actions) do
+	for i, a in ipairs(fixables) do
 		parts[#parts + 1] = string.format("# [%d/%d] %s\n%s",
-			i, #actions, a.title or "(untitled)", a.diff or "")
+			i, #fixables, a.title or "(untitled)", a.diff or "")
 	end
 	vim.g.smart_actions_last_diff  = table.concat(parts, "\n")
-	vim.g.smart_actions_last_title = string.format("multi-apply: %d action(s)", #actions)
+	vim.g.smart_actions_last_title = string.format("multi-apply: %d action(s)", #fixables)
 	if #skipped == 0 then
 		notify(string.format("applied %d actions", applied))
 	else
 		notify(string.format("%d of %d applied; %d skipped due to conflicts",
-			applied, #actions, #skipped), vim.log.levels.WARN)
+			applied, #fixables, #skipped), vim.log.levels.WARN)
 	end
 end
 
@@ -142,7 +166,13 @@ local function dispatch_picker(bufnr, scope, actions_list)
 		if not chosen or #chosen == 0 or not mode then return end
 		if mode == "apply" then
 			if #chosen == 1 then
-				apply_patch(bufnr, scope, chosen[1], chosen[1].diff)
+				local single = chosen[1]
+				if not single.diff or single.diff == "" then
+					-- Rationale-only observation (review category).
+					show_observation(single)
+				else
+					apply_patch(bufnr, scope, single, single.diff)
+				end
 			else
 				apply_many(bufnr, scope, chosen)
 			end
@@ -150,6 +180,11 @@ local function dispatch_picker(bufnr, scope, actions_list)
 			-- Edit is single-action by construction; picker guarantees
 			-- #chosen == 1 when mode == "edit".
 			local single = chosen[1]
+			if not single.diff or single.diff == "" then
+				notify("nothing to edit: " .. (single.title or "(untitled)")
+					.. " is an observation, not a fix", vim.log.levels.WARN)
+				return
+			end
 			require("smart_actions.ui.preview").edit(single, bufnr,
 				function(accepted, edited_patch)
 					if accepted then apply_patch(bufnr, scope, single, edited_patch) end
@@ -408,6 +443,17 @@ function M.tests(opts)
 	opts.category_id = "tests"
 	opts.scope = "file"  -- tests always operate at file scope
 	opts.visual_range = nil
+	return M.run(opts)
+end
+
+--- Run the `review` category. Broad feedback including blockers,
+--- suggestions, nits, and questions. Items may be fixes (with diff) or
+--- observations (rationale-only). Returns nothing if the scope is clean.
+---@param opts table|nil { scope?: string, visual_range?: table }
+function M.review(opts)
+	opts = opts or {}
+	opts.category_id = "review"
+	opts.visual_range = opts.visual_range or capture_visual_range()
 	return M.run(opts)
 end
 

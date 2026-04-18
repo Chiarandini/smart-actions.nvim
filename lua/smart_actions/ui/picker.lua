@@ -22,6 +22,34 @@ local function snacks_available()
 	return ok and _G.Snacks and _G.Snacks.picker and true or false
 end
 
+--- True if any action has an empty/missing diff. Used to switch the
+--- preview pane from "diff only" to an observation-aware dispatcher.
+local function has_observations(actions)
+	for _, a in ipairs(actions) do
+		if not a.diff or a.diff == "" then return true end
+	end
+	return false
+end
+
+--- Preview dispatcher that shows the action's diff when it has one, and
+--- falls back to a markdown rendering of `[title]\n\n<rationale>` when
+--- the action is a rationale-only observation (review category).
+local function observation_aware_preview(ctx)
+	local a = ctx.item and ctx.item.action or nil
+	if a and a.diff and a.diff ~= "" then
+		-- Delegate to Snacks' built-in diff previewer (terminal/delta/fancy).
+		return _G.Snacks.picker.preview.diff(ctx)
+	end
+	-- Render rationale as markdown.
+	ctx.item.preview = {
+		text = "# " .. (a and a.title or "(untitled)") .. "\n\n"
+			.. (a and a.description or "(no rationale)"),
+		ft   = "markdown",
+		loc  = false,
+	}
+	return _G.Snacks.picker.preview.preview(ctx)
+end
+
 local function open_snacks(actions, on_finish)
 	local items = {}
 	for _, a in ipairs(actions) do
@@ -53,19 +81,31 @@ local function open_snacks(actions, on_finish)
 		if on_finish then on_finish(actions, mode) end
 	end
 
+	-- Switch preview renderer when any item lacks a diff (review category).
+	-- Other categories all emit diffs; they get the richer delta/fancy
+	-- rendering via Snacks' built-in "diff" previewer.
+	local preview = has_observations(actions)
+		and observation_aware_preview
+		or  "diff"
+
 	_G.Snacks.picker({
 		source = "smart_actions",
 		title  = "Smart actions",
 		items  = items,
 		format = function(item, _picker)
 			local a = item.action
-			return {
+			local is_obs = (not a.diff or a.diff == "")
+			local title_hl = is_obs and "Special" or "Normal"
+			local segs = {
 				{ "[" .. (a.category or "?") .. "] ", "Comment" },
-				{ a.title or "(untitled)", "Normal" },
-				{ "  " .. (a.description or ""), "Comment" },
+				{ a.title or "(untitled)", title_hl },
 			}
+			if a.description and a.description ~= "" then
+				segs[#segs + 1] = { "  " .. a.description, "Comment" }
+			end
+			return segs
 		end,
-		preview = "diff",
+		preview = preview,
 		confirm = function(picker, _item)
 			-- Tab-toggled multi-select: picker:selected({fallback=true})
 			-- returns the Tab-marked items, or the currently-hovered item

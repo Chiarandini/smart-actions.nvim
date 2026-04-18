@@ -9,12 +9,13 @@ Three entry points:
 - **`grS`** (`:SmartActionSuppress`) — language-appropriate suppression-comment actions for LSP diagnostics (pyright-ignore, ts-expect-error, allow, noqa, etc.) without modifying logic.
 - **`grR`** (`:SmartActionRefactor`) — behaviour-preserving refactors (extract, inline, simplify, replace-mutation-with-functional). Explicitly not a bug-fix or styling category.
 - **`grT`** (`:SmartActionTests`) — generate ONE test for the function under cursor, framework auto-detected (pytest / vitest / `#[test]` / Go testing / plenary). Currently appends to the current file (multi-file test-file placement is a deferred v2.x feature).
+- **`grV`** (`:SmartActionReview`) — broad review with `[blocker]` / `[suggestion]` / `[nit]` / `[question]` severity tags. Items may be fixes (have a diff, apply normally) or observations (rationale-only, surface as a notification).
 
 All three share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API auto-fallback), and the same pluggable context system.
 
 ## Status
 
-v0.2.0. Categories shipped: `quickfix`, `explain`, `suppress`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Additional categories (refactor, docs, tests) and providers (OpenAI, Ollama) remain planned.
+v0.6.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Additional providers (OpenAI, Ollama) remain planned.
 
 ## Install
 
@@ -27,11 +28,12 @@ v0.2.0. Categories shipped: `quickfix`, `explain`, `suppress`. Providers shipped
     { "grS", function() require("smart_actions").suppress() end, desc = "smart action: [S]uppress diagnostic" },
     { "grR", function() require("smart_actions").refactor() end, desc = "smart action: [R]efactor" },
     { "grT", function() require("smart_actions").tests()    end, desc = "smart action: generate [T]est" },
+    { "grV", function() require("smart_actions").review()   end, desc = "smart action: re[V]iew" },
   },
   cmd = {
     "SmartAction", "SmartActionCancel", "SmartActionLastDiff",
     "SmartActionExplain", "SmartActionSuppress", "SmartActionRefactor",
-    "SmartActionTests",
+    "SmartActionTests", "SmartActionReview",
   },
   opts = {
     default_scope = "ask",       -- or "auto" / "line" / "function" / ...
@@ -91,6 +93,15 @@ Generates ONE test for the function or method closest to the cursor, framework a
 - Lua: plenary `describe` / `it` if present, else `assert(...)` block
 
 The test is appended to the current file (scope is forced to `file`). Multi-file placement — creating or extending a separate `tests/test_foo.py`-style file — is a deferred v2.x feature; in the meantime you can move the generated test by hand.
+
+### Review (`grV`)
+
+Broad feedback, explicitly opted-in. Each item carries a severity tag: `[blocker]` / `[suggestion]` / `[nit]` / `[question]`. Items may be either:
+
+- **Fixes** — have a unified_diff, apply normally via `<CR>` like any other category.
+- **Observations** — rationale-only (empty diff). The picker renders their rationale as markdown in the preview pane; hitting `<CR>` surfaces the rationale as a notification rather than trying to apply nothing.
+
+Use this when you want opinions that `grA` / `grR` deliberately leave out (style, naming, design judgement, clarifying questions).
 
 ### Suppress (`grS`)
 

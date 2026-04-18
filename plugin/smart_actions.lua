@@ -62,6 +62,18 @@ end, {
 	desc = "Generate a test for the function under cursor (appended to current file)",
 })
 
+vim.api.nvim_create_user_command("SmartActionReview", function(args)
+	require("smart_actions").review({
+		scope = args.args ~= "" and args.args or nil,
+	})
+end, {
+	nargs = "?",
+	complete = function()
+		return { "line", "function", "file", "folder", "project", "auto", "visual", "ask" }
+	end,
+	desc = "Broad code review (blockers, suggestions, nits, questions)",
+})
+
 vim.api.nvim_create_user_command("SmartActionLastDiff", function()
 	local diff = vim.g.smart_actions_last_diff or ""
 	local title = vim.g.smart_actions_last_title or ""
