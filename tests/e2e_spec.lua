@@ -69,7 +69,8 @@ local function run_case(case)
 	local opts = { visual_range = case.visual_range }
 	local scope = require("smart_actions.scope").get(case.scope, opts)
 
-	local cat = require("smart_actions.categories").get("quickfix")
+	local cat_id = case.category_id or "quickfix"
+	local cat = require("smart_actions.categories").get(cat_id)
 	local req, parser = cat.build(scope, { include_diagnostics = true })
 
 	-- Prepend context the same way init.lua's pipeline does.
@@ -88,23 +89,31 @@ local function run_case(case)
 	local elapsed_ms = math.floor((vim.uv.hrtime() - t0) / 1e6)
 
 	local result = {
-		actions    = parser.actions,
+		category   = cat,
 		scope      = scope,
 		elapsed_ms = elapsed_ms,
 		err        = err_msg,
 		buf_before = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"),
 	}
 
-	if #parser.actions > 0 then
-		local a = parser.actions[1]
-		local ok, apply_err = diff_mod.apply_to_buffer(a.diff, 0,
-			scope.start.row, scope.end_.row)
-		result.apply_ok  = ok
-		result.apply_err = apply_err
-		result.first     = a
-		if ok then
-			result.buf_after = table.concat(
-				vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+	if cat.output_kind == "text" then
+		-- Text-output categories (explain) stream prose into a float; no
+		-- actions to apply. Expose the accumulated text for assertions.
+		result.text    = parser.text or ""
+		result.actions = {}
+	else
+		result.actions = parser.actions or {}
+		if #result.actions > 0 then
+			local a = result.actions[1]
+			local ok, apply_err = diff_mod.apply_to_buffer(a.diff, 0,
+				scope.start.row, scope.end_.row)
+			result.apply_ok  = ok
+			result.apply_err = apply_err
+			result.first     = a
+			if ok then
+				result.buf_after = table.concat(
+					vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+			end
 		end
 	end
 
@@ -279,9 +288,19 @@ local cases = {
 		end,
 	},
 	{
+		-- Synthetic diagnostic on the cursor line makes this deterministic:
+		-- our quickfix prompt's rule 1 mandates an action when a diagnostic
+		-- overlaps. Without the diagnostic the test occasionally flakes —
+		-- the AI reads `result + 1` as plausibly-intentional and returns
+		-- nothing.
 		name = "typescript: missing await on Promise",
 		scope = "file", cursor_row = 7, suffix = ".ts",
 		content = "async function fetchData(): Promise<number> {\n    return 42;\n}\n\nasync function main() {\n    const result = fetchData();\n    console.log(result + 1);\n}\n",
+		diagnostics = {
+			{ lnum = 6, col = 16, severity = vim.diagnostic.severity.ERROR,
+			  message = "Operator '+' cannot be applied to types 'Promise<number>' and 'number'.",
+			  source = "typescript", end_lnum = 6 },
+		},
 		assert_fn = function(r)
 			H.check("ts: >=1 action",    #r.actions >= 1, true)
 			H.check("ts: apply ok",      r.apply_ok,      true)
@@ -335,6 +354,57 @@ local cases = {
 			H.check("multi-bug: at least one bug fixed", range_fixed or return_fixed, true)
 		end,
 	},
+	-- ─── Additional categories ──────────────────────────────────────────
+	{
+		-- Explain streams prose into a float (headless: we just capture it).
+		-- Synthetic diagnostic forces the prompt's rule-1 path (cursor
+		-- diagnostic) so the AI has clear subject matter.
+		name = "explain: prose streams for a diagnostic",
+		scope = "line", cursor_row = 1,
+		category_id = "explain",
+		content = "x = undefined_thing\n",
+		diagnostics = {
+			{ lnum = 0, col = 4, severity = vim.diagnostic.severity.ERROR,
+			  message = '"undefined_thing" is not defined', source = "Pyright",
+			  end_lnum = 0 },
+		},
+		assert_fn = function(r)
+			H.check("explain: text streamed",              r.text and #r.text >= 50,                      true)
+			H.check("explain: mentions 'undefined'",
+				r.text and r.text:lower():find("undefined") ~= nil,  true)
+		end,
+	},
+	{
+		-- Suppress adds a language-appropriate comment without changing
+		-- code logic. We assert the diff contains a known suppression
+		-- marker (pyright-ignore, type-ignore, or noqa) — the exact form
+		-- varies per run, but one of these keywords must appear.
+		name = "suppress: emits a suppression-comment action",
+		scope = "line", cursor_row = 2,
+		category_id = "suppress",
+		content = "def compute(x):\n    return x + 'hello'\n",
+		diagnostics = {
+			{ lnum = 1, col = 4, severity = vim.diagnostic.severity.ERROR,
+			  message = 'Operator "+" not supported for types "int" and "str"',
+			  source = "Pyright", end_lnum = 1,
+			  user_data = { lsp = { code = "reportOperatorIssue" } } },
+		},
+		assert_fn = function(r)
+			H.check("suppress: >=1 action",     #r.actions >= 1,                     true)
+			H.check("suppress: apply ok",       r.apply_ok,                          true)
+			H.check("suppress: buffer mutated", r.buf_after and r.buf_after ~= r.buf_before, true)
+			local diff = r.first and r.first.diff or ""
+			local marker = diff:lower():match("pyright: ignore")
+				or diff:lower():match("type: ignore")
+				or diff:lower():match("noqa")
+			H.check("suppress: diff contains pyright/type/noqa marker",
+				marker ~= nil, true)
+			-- The edit should NOT change the code's semantics — return-line
+			-- content should be preserved (possibly with an appended comment).
+			H.check("suppress: `x + 'hello'` still present",
+				r.buf_after and r.buf_after:find("x %+ 'hello'") ~= nil, true)
+		end,
+	},
 	{
 		-- Apply on an already-dirty buffer. pre_edit inserts a harmless line
 		-- at the TOP of the buffer; grA targets the bug line (now shifted
@@ -384,6 +454,14 @@ for _, case in ipairs(cases) do
 	elseif r.err then
 		H.failures = H.failures + 1
 		print("  FAIL  stream error: " .. r.err)
+	elseif r.category and r.category.output_kind == "text" then
+		-- Text-category cases (explain): no .actions/.first; assertions
+		-- operate on r.text.
+		print(string.format("  text length: %d chars", #(r.text or "")))
+		if r.text and #r.text > 0 and #r.text < 200 then
+			print("  sample: " .. r.text:sub(1, 120))
+		end
+		case.assert_fn(r)
 	elseif #r.actions == 0 then
 		H.failures = H.failures + 1
 		print("  FAIL  no actions returned")

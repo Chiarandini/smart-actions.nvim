@@ -1,24 +1,37 @@
 # smart-actions.nvim
 
-AI-suggested code actions for Neovim, bound to `grA`. Complements (does not replace) the stock LSP code-action flow on `gra`.
+AI-suggested code actions for Neovim. Complements (does not replace) the stock LSP code-action flow on `gra`.
+
+Three entry points:
+
+- **`grA`** — quickfix actions (bug fixes, edge-case hardening). Pick from an inline-diff picker.
+- **`grE`** (`:SmartActionExplain`) — prose explanation of a diagnostic / tricky code, streamed into a floating window. Pivot to quickfix with `a`/`<CR>`.
+- **`grS`** (`:SmartActionSuppress`) — language-appropriate suppression-comment actions for LSP diagnostics (pyright-ignore, ts-expect-error, allow, noqa, etc.) without modifying logic.
+
+All three share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API auto-fallback), and the same pluggable context system.
 
 ## Status
 
-v1 in development. The `quickfix` category and the Claude Code CLI provider land first; other categories (refactor, docs, explain, tests, transform) and providers (OpenAI, Ollama, etc.) are planned.
+v0.2.0. Categories shipped: `quickfix`, `explain`, `suppress`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Additional categories (refactor, docs, tests) and providers (OpenAI, Ollama) remain planned.
 
 ## Install
 
-**lazy.nvim (local dev):**
-
 ```lua
 {
-  "smart-actions.nvim",
-  dir = vim.fn.expand("~/programming/custom_plugins/smart-actions.nvim"),
-  keys = { { "grA", mode = { "n", "x" }, desc = "smart code [A]ction" } },
-  cmd = { "SmartAction", "SmartActionCancel" },
+  "Chiarandini/smart-actions.nvim",
+  keys = {
+    { "grA", mode = { "n", "x" }, desc = "smart code [A]ction" },
+    { "grE", function() require("smart_actions").explain()  end, desc = "smart action: [E]xplain" },
+    { "grS", function() require("smart_actions").suppress() end, desc = "smart action: [S]uppress diagnostic" },
+  },
+  cmd = {
+    "SmartAction", "SmartActionCancel", "SmartActionLastDiff",
+    "SmartActionExplain", "SmartActionSuppress",
+  },
   opts = {
-    default_scope = "ask",
-    categories = { "quickfix" },
+    default_scope = "ask",       -- or "auto" / "line" / "function" / ...
+    categories    = { "quickfix" },
+    -- eager_action_after_explain = true,  -- opt-in: pre-warm quickfix while you read the explanation
   },
   config = function(_, opts) require("smart_actions").setup(opts) end,
 }
@@ -36,13 +49,41 @@ Optional but recommended:
 
 ## UX
 
-`grA` → scope picker (if `default_scope = "ask"`) → AI streams → results picker opens with all actions:
+### Quickfix (`grA`)
+
+Scope picker (if `default_scope = "ask"`) → AI streams → results picker opens with all actions, inline diff preview in the side pane:
 
 - `<CR>` applies the highlighted action's diff.
-- `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies, `:q!` cancels.
+- `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies the (possibly edited) patch, `:q!` cancels.
 - `<Esc>` dismisses without applying.
 
-Every apply is a single undo unit — `u` reverts the full action.
+Every apply is a single undo unit — `u` reverts the full action cleanly. The applier is *anchor-by-context*: if the AI's hunk header is slightly off, hunks relocate to where the body's context lines actually match the buffer (like `git apply`), so minor drift doesn't corrupt the edit.
+
+### Explain (`grE`)
+
+Streams a prose explanation into a bordered floating window — useful when an LSP diagnostic is cryptic or a piece of code looks wrong but you're not sure why. In the float:
+
+- `a` / `<CR>` — close and pivot to quickfix on the same scope (*"OK, now fix it"*).
+- `q` / `<Esc>` — dismiss without further action.
+
+The active keybindings are shown in the float's bottom border so they don't need to be memorised.
+
+### Suppress (`grS`)
+
+Same picker UX as quickfix, but each action is a language-appropriate suppression comment rather than a code fix. No logic is modified. Supports:
+
+- Python: `# pyright: ignore[...]`, `# type: ignore`, `# noqa`
+- TypeScript / JavaScript: `// @ts-expect-error`, `// eslint-disable-next-line`
+- Rust: `#[allow(...)]`
+- Go: `//nolint:...`
+- Shell: `# shellcheck disable=...`
+- Lua: `---@diagnostic disable-next-line: ...`
+
+Returns nothing when there are no LSP diagnostics to suppress.
+
+### Eager action after explain (opt-in)
+
+When `eager_action_after_explain = true` in setup, the quickfix category starts streaming in the background the moment an explain stream finishes. If you press `a`/`<CR>` in the float, the picker opens (near-)instantly — the read time has hidden the latency. If you press `q`/`<Esc>`, the in-flight quickfix is cancelled. Trade-off: roughly doubles token cost on any explain that's dismissed before the background quickfix completes. Default off.
 
 ## Adding your own provider
 
@@ -148,10 +189,10 @@ Two suites under `tests/`:
     -c 'luafile tests/diff_spec.lua' -c 'qa!'
   ```
 
-- **`e2e_spec.lua`** — end-to-end: each test opens a deliberately-buggy fixture, runs the full pipeline (scope → context → quickfix → real Claude Code stream → apply), and asserts shape properties (action count, apply succeeds within scope bounds, bug gone from buffer after apply, edit distance from cursor). Gated by `SA_E2E=1`. Covers `line`, `function`, `file`, `visual`, and `auto` scopes.
+- **`e2e_spec.lua`** — end-to-end: each test opens a deliberately-buggy fixture, runs the full pipeline (scope → context → category → real Claude Code stream → apply), and asserts shape properties (action count, apply succeeds within scope bounds, bug gone after apply, edit distance from cursor). Gated by `SA_E2E=1`. Covers all 7 scopes (`line` / `function` / `file` / `folder` / `project` / `visual` / `auto`), five languages (Python, Lua, Rust, Go, TypeScript; LaTeX if your env permits), the quickfix / explain / suppress categories, multi-hunk, syntax-broken input, and dirty-buffer apply.
 
   ```sh
-  ./tests/run-e2e.sh                   # 5 cases, ~30s total
+  ./tests/run-e2e.sh                   # ~15 cases, ~90s total
   ```
 
 - **`variance.lua`** — an N-run harness for measuring AI variance on a fixed fixture. Reports deletions/additions/max-distance-from-cursor per run so you can see if a prompt tweak is narrowing or widening the AI's output.
