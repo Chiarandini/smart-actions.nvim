@@ -15,7 +15,7 @@ All six share the same scope picker (line / function / file / folder / project /
 
 ## Status
 
-v0.10.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API), **`openai` (generic OpenAI-compatible)**. The `openai` provider covers OpenAI itself, Ollama, LM Studio, OpenRouter, Groq, Gemini-compat, and any other `/chat/completions`-speaking endpoint; see the "Using other AI models" section for ready-to-copy recipes. Default `anthropic` model is `claude-sonnet-4-6`. Quickfix has two modes: cursor-focus (non-visual scopes, cap 3) and region-fix (visual selection, dynamic cap up to `quickfix_region_max_actions`, default 10). Cursor-line diagnostics are split into an "AT cursor column" priority tier. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms).
+v0.11.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API), **`openai` (generic OpenAI-compatible)**. The `openai` provider covers OpenAI itself, Ollama, LM Studio, OpenRouter, Groq, Gemini-compat, and any other `/chat/completions`-speaking endpoint; see the "Using other AI models" section for ready-to-copy recipes. Default `anthropic` model is `claude-sonnet-4-6`. Quickfix has two modes: cursor-focus (non-visual scopes, cap 3) and region-fix (visual selection, dynamic cap up to `quickfix_region_max_actions`, default 10). Cursor-line diagnostics are split into an "AT cursor column" priority tier. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms).
 
 ## Install
 

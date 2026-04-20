@@ -296,10 +296,16 @@ local function run_pipeline(scope_name, visual_range, opts)
 			local ctx = require("smart_actions.context").assemble(scope, provider)
 			if ctx ~= "" then act_req.system = act_req.system .. "\n\n" .. ctx end
 
+			local status = require("smart_actions.status")
+			local rec_e = status.begin({ scope = scope, category = act_cat, provider = provider, bufnr = bufnr })
 			busy.increment(bufnr)
 			require("smart_actions.providers").stream(act_req, {
-				on_text  = function(chunk) act_parser:feed(chunk) end,
+				on_text  = function(chunk)
+					status.chunk(rec_e, chunk)
+					act_parser:feed(chunk)
+				end,
 				on_done  = function()
+					status.finish(rec_e)
 					busy.decrement(bufnr)
 					if eager.cancelled then return end
 					eager.done    = true
@@ -307,6 +313,7 @@ local function run_pipeline(scope_name, visual_range, opts)
 					if eager.pending_pivot then open_action_picker() end
 				end,
 				on_error = function(err)
+					status.finish(rec_e)
 					busy.decrement(bufnr)
 					if not eager.cancelled then
 						notify("eager action error: " .. tostring(err), vim.log.levels.WARN)
@@ -343,15 +350,22 @@ local function run_pipeline(scope_name, visual_range, opts)
 		local float = require("smart_actions.ui.explain").open(
 			" " .. (category.label or category.id) .. " ", float_opts)
 		parser.on_text = function(chunk) float.feed(chunk) end
+		local status = require("smart_actions.status")
+		local rec_t = status.begin({ scope = scope, category = category, provider = provider, bufnr = bufnr })
 		busy.increment(bufnr)
 		require("smart_actions.providers").stream(request, {
-			on_text  = function(chunk) parser:feed(chunk) end,
+			on_text  = function(chunk)
+				status.chunk(rec_t, chunk)
+				parser:feed(chunk)
+			end,
 			on_done  = function()
+				status.finish(rec_t)
 				busy.decrement(bufnr)
 				float.done()
 				if eager_enabled then start_eager() end
 			end,
 			on_error = function(err)
+				status.finish(rec_t)
 				busy.decrement(bufnr)
 				notify("AI error: " .. tostring(err), vim.log.levels.ERROR)
 				float.close()
@@ -361,10 +375,16 @@ local function run_pipeline(scope_name, visual_range, opts)
 	end
 
 	-- Default: actions category → picker → apply/edit.
+	local status = require("smart_actions.status")
+	local rec_a = status.begin({ scope = scope, category = category, provider = provider, bufnr = bufnr })
 	busy.increment(bufnr)
 	require("smart_actions.providers").stream(request, {
-		on_text = function(chunk) parser:feed(chunk) end,
+		on_text = function(chunk)
+			status.chunk(rec_a, chunk)
+			parser:feed(chunk)
+		end,
 		on_done = function()
+			status.finish(rec_a)
 			busy.decrement(bufnr)
 			local actions = parser.actions or {}
 			if #actions == 0 then
@@ -375,6 +395,7 @@ local function run_pipeline(scope_name, visual_range, opts)
 			dispatch_picker(bufnr, scope, actions)
 		end,
 		on_error = function(err)
+			status.finish(rec_a)
 			busy.decrement(bufnr)
 			notify("AI error: " .. tostring(err), vim.log.levels.ERROR)
 		end,

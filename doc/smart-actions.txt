@@ -12,6 +12,7 @@ CONTENTS					*smart-actions-contents*
 7. Providers				|smart-actions-providers|
 8. Context				|smart-actions-context|
 9. Known limitations			|smart-actions-limits|
+10. Status API				|smart-actions-status|
 
 ==============================================================================
 1. Overview					*smart-actions-overview*
@@ -435,5 +436,43 @@ previously listed as deferred):
     `grV` tags each item with `[blocker]` / `[suggestion]` / `[nit]` /
     `[question]` and renders rationale-only observations as markdown in
     the preview pane. See the Review entry in |smart-actions-commands|.
+
+==============================================================================
+10. Status API					*smart-actions-status*
+
+`smart_actions.status` exposes live, per-request metadata for external
+observers (statuslines, status reports, custom UIs). Every streaming
+request transitions through:
+
+    begin  →  chunk (first call sets state to "streaming", stamps TTFB)
+           →  finish (on on_done or on_error)
+
+Public surface:
+>lua
+    local status = require("smart_actions.status")
+
+    status.list()     -- array of active records, oldest first
+    status.current()  -- most recent active record, or nil
+<
+Each record has:
+
+    `scope_label`     "line" | "function" | "file" | ...
+    `file`            absolute path of the trigger buffer (or "")
+    `cursor_row`      0-indexed row, or nil
+    `cursor_col`      0-indexed col, or nil
+    `category_id`     "quickfix" | "explain" | "suppress" | ...
+    `provider_id`     "claude_code" | "anthropic" | "openai" | ...
+    `bufnr`           trigger buffer number
+    `started_at`      (vim.uv.now) at dispatch
+    `first_chunk_at`  (vim.uv.now) at first streaming chunk, or nil
+    `bytes`           cumulative stream-text byte count
+    `state`           "pending" | "streaming"
+
+Typical usage — render a "thinking/streaming" indicator and expose
+scope/category/provider on demand. The NoetherVim distribution wires
+this into its Busy statusline component via a greedy-takeover hook;
+see `:help noethervim-statusline-busy-override` for a worked example.
+
+The returned `list()` table is live — do not mutate.
 
  vim:tw=78:ts=8:ft=help:norl:
