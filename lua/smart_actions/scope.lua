@@ -254,6 +254,26 @@ end
 
 -- ─── Trigger metadata ──────────────────────────────────────────────────
 
+--- True when `d`'s range contains `col`. `end_col` is treated as exclusive;
+--- if missing / <= `col`, the diagnostic is treated as a single-char mark
+--- at `d.col` and matches only when `col == d.col`.
+local function diag_overlaps_col(d, col)
+	local d_col = d.col or 0
+	local d_end = d.end_col
+	if not d_end or d_end <= d_col then return col == d_col end
+	return col >= d_col and col < d_end
+end
+
+--- Split `diags` into (at_col, line_only) where `at_col` = diagnostics whose
+--- range contains the cursor column and `line_only` = the rest.
+local function partition_diagnostics_at_col(diags, col)
+	local at, other = {}, {}
+	for _, d in ipairs(diags) do
+		if diag_overlaps_col(d, col) then at[#at + 1] = d else other[#other + 1] = d end
+	end
+	return at, other
+end
+
 local function trigger_metadata(bufnr, visual_range)
 	local pos = vim.api.nvim_win_get_cursor(0)
 	local row, col = pos[1] - 1, pos[2]
@@ -266,14 +286,19 @@ local function trigger_metadata(bufnr, visual_range)
 		node_kind = node:type()
 	end
 
+	local line_diags = vim.diagnostic.get(bufnr, { lnum = row })
+	local at_col, line_only = partition_diagnostics_at_col(line_diags, col)
+
 	return {
-		file        = vim.api.nvim_buf_get_name(bufnr),
-		cursor      = { row = row, col = col },
-		line_text   = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or "",
-		symbol      = symbol,
-		node_kind   = node_kind,
-		diagnostics = vim.diagnostic.get(bufnr, { lnum = row }),
-		visual      = visual_range,
+		file                = vim.api.nvim_buf_get_name(bufnr),
+		cursor              = { row = row, col = col },
+		line_text           = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or "",
+		symbol              = symbol,
+		node_kind           = node_kind,
+		diagnostics         = line_diags,   -- all diagnostics on cursor LINE (back-compat)
+		diagnostics_at_col  = at_col,       -- subset whose range contains cursor COLUMN
+		diagnostics_on_line = line_only,    -- `diagnostics` minus `diagnostics_at_col`
+		visual              = visual_range,
 	}
 end
 

@@ -14,3 +14,6 @@ lua/secrets.lua
 
 # Local tempfiles sometimes created by tests
 tests/.tmp/
+
+# Auto-generated vim helptags
+doc/tags

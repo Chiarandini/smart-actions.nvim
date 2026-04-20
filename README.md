@@ -15,7 +15,7 @@ All three share the same scope picker (line / function / file / folder / project
 
 ## Status
 
-v0.7.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Folder/project scope file enumeration now streams through `vim.system` with a bounded time budget (`file_scan_timeout_ms`, default 500ms) so huge monorepos no longer freeze nvim. Additional providers (OpenAI, Ollama) remain planned.
+v0.8.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Default `anthropic` model is `claude-sonnet-4-6` (roughly half the latency of Opus at near-identical quality on scope-bounded edits); override with `provider_config.anthropic.model`. Quickfix prompt now splits cursor-line diagnostics into an "AT cursor column" tier ahead of the rest-of-line tier so the AI targets the one you're pointing at first. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms). Additional providers (OpenAI, Ollama) remain planned.
 
 ## Install
 
@@ -53,6 +53,20 @@ One of:
 Optional but recommended:
 - [`snacks.nvim`](https://github.com/folke/snacks.nvim) — the results picker uses Snacks's built-in `diff` previewer so the unified diff renders inline next to the action list. Without snacks, the plugin falls back to `vim.ui.select` (flat menu; no inline preview).
 - [`delta`](https://github.com/dandavison/delta) on `$PATH` — if present, Snacks's diff previewer uses it for colored, side-by-side diff rendering.
+
+### Model
+
+Default model for the `anthropic` provider is `claude-sonnet-4-6` — the code-actions sweet spot (roughly half the latency of Opus at near-identical quality on scope-bounded edits). Override for judgment-heavy work:
+
+```lua
+opts = {
+  provider_config = {
+    anthropic = { model = "claude-opus-4-7" },  -- or a Haiku id for speed
+  },
+}
+```
+
+The `claude_code` provider uses whatever model Claude Code itself is configured with — set it via the CLI's `/model` command or your Claude Code config.
 
 ## UX
 

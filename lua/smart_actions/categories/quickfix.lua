@@ -25,9 +25,13 @@ scope, ranked by relevance to the trigger line and the symbol under cursor.
 Ranking rules (strict, in priority order):
   1. If an LSP diagnostic overlaps the trigger line, you MUST return at
      least one action addressing it. The FIRST action MUST target that
-     diagnostic. "No actions" is NOT an option while any diagnostic exists
-     in the scope — if the only sensible fix is "delete the line", emit
-     that as an action rather than returning nothing.
+     diagnostic. When multiple diagnostics exist, target them in the
+     order they appear in the prompt: the "Diagnostic AT cursor column"
+     section takes priority over "Other diagnostics on cursor line",
+     which in turn takes priority over "Other diagnostics in this scope".
+     "No actions" is NOT an option while any diagnostic exists in the
+     scope — if the only sensible fix is "delete the line", emit that as
+     an action rather than returning nothing.
   2. Otherwise, the FIRST action MUST address the most obvious bug on the
      trigger line or at the cursor's immediate vicinity (the symbol under
      cursor, the enclosing statement).
@@ -84,35 +88,41 @@ local function build_user_prompt(scope, include_diagnostics)
 
 	if include_diagnostics then
 		local fmt = function(d)
-			return string.format("  line %d: [%s] %s (%s)",
-				(d.lnum or 0) + 1,
+			return string.format("  line %d col %d: [%s] %s (%s)",
+				(d.lnum or 0) + 1, (d.col or 0) + 1,
 				SEVERITY_NAMES[d.severity] or "?",
 				d.message or "",
 				d.source or "?")
 		end
-
-		local trigger_diag = trg.diagnostics or {}
-		local scope_diag   = scope.diagnostics or {}
-
-		-- Dedup: "other diagnostics" = scope set minus trigger set,
-		-- keyed by (lnum, message, source).
-		local seen = {}
-		for _, d in ipairs(trigger_diag) do
-			seen[(d.lnum or 0) .. "|" .. (d.message or "") .. "|" .. (d.source or "")] = true
+		local key = function(d)
+			return (d.lnum or 0) .. "|" .. (d.col or 0) .. "|"
+				.. (d.message or "") .. "|" .. (d.source or "")
 		end
+
+		local at_col_diag   = trg.diagnostics_at_col  or {}
+		local line_only_diag = trg.diagnostics_on_line or {}
+		local scope_diag    = scope.diagnostics or {}
+
+		-- "Other in scope" = scope set minus everything already surfaced in
+		-- the two trigger-level sections.
+		local seen = {}
+		for _, d in ipairs(at_col_diag)   do seen[key(d)] = true end
+		for _, d in ipairs(line_only_diag) do seen[key(d)] = true end
 		local other = {}
 		for _, d in ipairs(scope_diag) do
-			local k = (d.lnum or 0) .. "|" .. (d.message or "") .. "|" .. (d.source or "")
-			if not seen[k] then
-				seen[k] = true
-				other[#other + 1] = d
-			end
+			local k = key(d)
+			if not seen[k] then seen[k] = true; other[#other + 1] = d end
 		end
 
-		if #trigger_diag > 0 then
+		if #at_col_diag > 0 then
 			lines[#lines + 1] = ""
-			lines[#lines + 1] = "Diagnostic at cursor:"
-			for _, d in ipairs(trigger_diag) do lines[#lines + 1] = fmt(d) end
+			lines[#lines + 1] = "Diagnostic AT cursor column (highest priority):"
+			for _, d in ipairs(at_col_diag) do lines[#lines + 1] = fmt(d) end
+		end
+		if #line_only_diag > 0 then
+			lines[#lines + 1] = ""
+			lines[#lines + 1] = "Other diagnostics on cursor line:"
+			for _, d in ipairs(line_only_diag) do lines[#lines + 1] = fmt(d) end
 		end
 		if #other > 0 then
 			lines[#lines + 1] = ""

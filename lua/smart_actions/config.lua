@@ -23,7 +23,12 @@ local defaults = {
 			extra_args = {},       -- appended to `claude -p ...`
 		},
 		anthropic = {
-			model      = "claude-opus-4-7",
+			-- Sonnet 4.6 is the code-actions sweet spot: roughly half the
+			-- latency of Opus 4.7 at near-identical quality on scope-bounded
+			-- code edits. Override to "claude-opus-4-7" for judgment-heavy
+			-- work (multi-step refactor, cross-file review) if Sonnet
+			-- returns underpowered suggestions.
+			model      = "claude-sonnet-4-6",
 			max_tokens = 4096,
 		},
 	},

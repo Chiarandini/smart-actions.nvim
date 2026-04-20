@@ -64,7 +64,7 @@ function M.stream(req, cb)
 	local opts = req.opts or {}
 
 	local body_json = vim.json.encode({
-		model      = opts.model      or "claude-opus-4-7",
+		model      = opts.model      or "claude-sonnet-4-6",
 		max_tokens = opts.max_tokens or 4096,
 		stream     = true,
 		system     = req.system or "",

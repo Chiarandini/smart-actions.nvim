@@ -158,27 +158,37 @@ has elapsed — whichever comes first — so nvim never freezes on huge trees.
 						*smart-actions-diagnostics*
 Diagnostics attached to a scope: ~
 
-Every Scope object carries two diagnostic fields:
+Every Scope object carries four diagnostic fields:
 
-  scope.trigger.diagnostics   -- vim.diagnostic.get(bufnr, { lnum = cursor_row })
-                                 cursor-line only; the "focal" set
-  scope.diagnostics           -- vim.diagnostic.get(bufnr) filtered to entries
-                                 whose range overlaps scope.start .. scope.end_
-                                 (single-buffer scopes); for folder/project,
-                                 additionally walks loaded buffers whose path
-                                 is in scope.files
+  scope.trigger.diagnostics          -- all diagnostics on the cursor LINE
+                                        (back-compat; superset of the two
+                                        partitions below)
+  scope.trigger.diagnostics_at_col   -- subset whose range contains the
+                                        cursor COLUMN (the focal set — the
+                                        thing the user is LOOKING at)
+  scope.trigger.diagnostics_on_line  -- `diagnostics` minus `diagnostics_at_col`
+  scope.diagnostics                  -- vim.diagnostic.get(bufnr) filtered to
+                                        entries whose range overlaps
+                                        scope.start .. scope.end_ (single-
+                                        buffer scopes); for folder/project,
+                                        additionally walks loaded buffers
+                                        whose path is in scope.files
 
 Unloaded files yield no diagnostics — LSPs only analyze open buffers.
 
-The quickfix category surfaces both in the prompt, labeled:
+The quickfix category surfaces all three trigger tiers in priority order:
 >
-    Diagnostic at cursor:
-      line N: [severity] message (source)
+    Diagnostic AT cursor column (highest priority):
+      line N col M: [severity] message (source)
+
+    Other diagnostics on cursor line:
+      line N col M: [severity] message (source)
 
     Other diagnostics in this scope:
-      line M: [severity] message (source)
+      line K col M: [severity] message (source)
 <
-Deduplication keyed on (lnum, message, source) ensures nothing appears twice.
+The AI is instructed to target the highest-priority non-empty tier first.
+Deduplication keyed on (lnum, col, message, source) ensures nothing repeats.
 
 ==============================================================================
 6. Categories					*smart-actions-categories*
