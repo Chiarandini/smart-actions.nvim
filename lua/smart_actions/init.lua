@@ -240,7 +240,8 @@ local function run_pipeline(scope_name, visual_range, opts)
 	announce(scope, provider, category)
 
 	local request, parser = category.build(scope, {
-		include_diagnostics = config.include_diagnostics,
+		include_diagnostics         = config.include_diagnostics,
+		quickfix_region_max_actions = config.quickfix_region_max_actions,
 	})
 	local context_block = require("smart_actions.context").assemble(scope, provider)
 	if context_block ~= "" then
@@ -289,7 +290,8 @@ local function run_pipeline(scope_name, visual_range, opts)
 			if not act_cat then eager.done = true; eager.actions = {}; return end
 
 			local act_req, act_parser = act_cat.build(scope, {
-				include_diagnostics = conf.include_diagnostics,
+				include_diagnostics         = conf.include_diagnostics,
+				quickfix_region_max_actions = conf.quickfix_region_max_actions,
 			})
 			local ctx = require("smart_actions.context").assemble(scope, provider)
 			if ctx ~= "" then act_req.system = act_req.system .. "\n\n" .. ctx end

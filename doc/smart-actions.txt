@@ -193,8 +193,28 @@ Deduplication keyed on (lnum, col, message, source) ensures nothing repeats.
 ==============================================================================
 6. Categories					*smart-actions-categories*
 
-v1: `quickfix`.  Refactor, documentation, explain, tests, transform are
-registered via the same interface and planned for v2.
+Shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`.
+Additional categories register via the same interface.
+
+						*smart-actions-quickfix-modes*
+Quickfix has two prompt modes, picked automatically from scope shape: ~
+
+  Cursor-focus (default) — any non-visual scope. The AI biases toward the
+  trigger line using the three-tier diagnostic layout (see
+  |smart-actions-diagnostics|). Cap: 3 actions. Use when you're pointing
+  at something and want it fixed; include `function` / `file` / `folder`
+  scope to widen the CONTEXT the AI sees, not the fix surface.
+
+  Region-fix — triggered when `scope.label == "visual"` (i.e. you pressed
+  grA over a visual selection). No cursor-proximity bias; the selection
+  IS the "here, fix all of this" gesture. Cap scales with the diagnostic
+  count in the selection:
+>
+    cap = clamp(3, n_diagnostics + 2, quickfix_region_max_actions)
+<
+  So a clean selection still gets 3, 5 diagnostics ⇒ 7, 20 diagnostics ⇒
+  10 (default ceiling). Raise `quickfix_region_max_actions` if you
+  regularly select large regions with many lint warnings.
 
 ==============================================================================
 7. Providers					*smart-actions-providers*

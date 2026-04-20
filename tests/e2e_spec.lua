@@ -229,6 +229,43 @@ local cases = {
 		end,
 	},
 	{
+		-- v0.9.0: visual scope triggers region-fix mode with a dynamic cap
+		-- based on the diagnostic count. Four distinct injected diagnostics
+		-- ⇒ cap = max(3, min(10, 4+2)) = 6. Assert >=4 actions came back,
+		-- proving the AI escaped cursor-mode's fixed cap of 3.
+		name = "visual scope region-fix: dynamic cap scales with diagnostics",
+		scope = "visual", cursor_row = 3,
+		content = "def process(xs):\n"
+			.. "    total = 0\n"
+			.. "    for i in range(len(xs) + 1):\n"
+			.. "        total = total + xs[i]\n"
+			.. "    avg = total / 0\n"
+			.. "    if avg > undefined_var:\n"
+			.. "        return  none\n"
+			.. "    return avg\n",
+		visual_range = {
+			mode  = "V",
+			start = { row = 0, col = 0 },
+			end_  = { row = 7, col = 0 },
+		},
+		diagnostics = {
+			{ lnum = 2, col = 15, end_col = 30, severity = vim.diagnostic.severity.WARN,
+			  message = "off-by-one: range overshoots xs", source = "test" },
+			{ lnum = 4, col = 10, end_col = 21, severity = vim.diagnostic.severity.ERROR,
+			  message = "ZeroDivisionError: division by zero literal", source = "test" },
+			{ lnum = 5, col = 13, end_col = 28, severity = vim.diagnostic.severity.ERROR,
+			  message = "\"undefined_var\" is not defined", source = "Pyright" },
+			{ lnum = 6, col = 16, end_col = 20, severity = vim.diagnostic.severity.ERROR,
+			  message = "\"none\" is not defined (did you mean None?)", source = "Pyright" },
+		},
+		assert_fn = function(r)
+			H.check("region-fix: >=4 actions (cap scaled past cursor-mode's 3)",
+				#r.actions >= 4, true)
+			H.check("region-fix: <=10 actions (within default ceiling)",
+				#r.actions <= 10, true)
+		end,
+	},
+	{
 		-- Regression: folder scope at a file with an LSP-diagnostic-flagged
 		-- line. Previously scope.end_.row was set to 0 (degenerate), which
 		-- made the bounds check reject any hunk targeting rows > 0 even

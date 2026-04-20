@@ -58,6 +58,15 @@ local defaults = {
 	-- becomes -1 (meaning "unknown, there may be more").
 	file_scan_timeout_ms = 500,
 
+	-- Hard ceiling on actions quickfix can return in region-fix mode (grA
+	-- invoked over a visual selection). The actual cap scales with the
+	-- number of diagnostics overlapping the selection — roughly
+	--   cap = clamp(3, n_diagnostics + 2, quickfix_region_max_actions)
+	-- so a clean selection still gets 3, and a buggy one gets one-per-bug
+	-- up to this ceiling. Raise if you regularly select large regions with
+	-- many lint warnings and want them all surfaced.
+	quickfix_region_max_actions = 10,
+
 	-- Auto-cancel the AI request if it hasn't settled after this many ms.
 	-- Guards against hangs (network stalls, provider freezes). Set to 0 to
 	-- disable. The cancel fires on_error("...timed out after Nms") and the

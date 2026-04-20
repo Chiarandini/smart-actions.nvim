@@ -15,7 +15,7 @@ All three share the same scope picker (line / function / file / folder / project
 
 ## Status
 
-v0.8.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Default `anthropic` model is `claude-sonnet-4-6` (roughly half the latency of Opus at near-identical quality on scope-bounded edits); override with `provider_config.anthropic.model`. Quickfix prompt now splits cursor-line diagnostics into an "AT cursor column" tier ahead of the rest-of-line tier so the AI targets the one you're pointing at first. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms). Additional providers (OpenAI, Ollama) remain planned.
+v0.9.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Default `anthropic` model is `claude-sonnet-4-6` (roughly half the latency of Opus at near-identical quality on scope-bounded edits); override with `provider_config.anthropic.model`. Quickfix has two modes: cursor-focus (non-visual scopes, cap 3) and region-fix (visual selection, dynamic cap up to `quickfix_region_max_actions`, default 10). Cursor-line diagnostics are split into an "AT cursor column" priority tier. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms). Additional providers (OpenAI, Ollama) remain planned.
 
 ## Install
 
@@ -78,6 +78,13 @@ Scope picker (if `default_scope = "ask"`) → AI streams → results picker open
 - `<Tab>` / `<S-Tab>` toggle-select actions for multi-apply. Selected actions apply sequentially with a single undo unit; any whose context can't land on the mutated buffer is silently skipped and reported ("N of M applied, K skipped").
 - `<C-e>` opens the diff in a scratch buffer for hand-editing; `:w` applies the (possibly edited) patch, `:q!` cancels. Always targets the hovered action, even if others are Tab-selected.
 - `<Esc>` dismisses without applying.
+
+**Two modes**, picked automatically from the scope shape:
+
+- **Cursor-focus** — the default for `line` / `function` / `file` / `folder` / `project` scopes. The AI biases hard toward the trigger line (the diagnostic at the cursor *column* first, then the rest of the cursor line, then the rest of the scope). Cap: **3 actions**.
+- **Region-fix** — triggered by a *visual selection*. The AI ignores cursor position and tries to fix every real bug in the selection, one action per distinct concern. Cap scales with diagnostic count: `clamp(3, n_diagnostics + 2, quickfix_region_max_actions)`. So a clean selection still gets 3, a selection with 5 diagnostics gets 7, a giant buggy selection gets capped at the ceiling (default **10**). Raise the ceiling via `opts.quickfix_region_max_actions` if you regularly select large regions with many lint warnings.
+
+The distinction matches the intent: function scope means "*include this context when reasoning about the one thing I'm pointing at*", while visual select means "*fix everything in here*".
 
 Every apply is a single undo unit — `u` reverts the full action cleanly (including multi-select bundles). The applier is *anchor-by-context*: if the AI's hunk header is slightly off, hunks relocate to where the body's context lines actually match the buffer (like `git apply`), so minor drift doesn't corrupt the edit.
 
