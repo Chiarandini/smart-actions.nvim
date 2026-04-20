@@ -162,4 +162,63 @@ H.with_buf({ "alpha", "line 2", "beta", "line 2", "gamma" }, function(buf)
 	H.check("apply_many: skipped index",  skipped[1].index, 2)
 end)
 
+-- ─── quickfix mode selection & region_cap ───────────────────────────────
+--
+-- Deterministic unit tests for the cursor-vs-region mode split, so we don't
+-- rely on AI variance to prove the plumbing works.
+
+local function synth_scope(label, scope_diag_count)
+	local scope = {
+		label = label, text = "code", truncated = false,
+		start = { row = 0, col = 0 }, end_ = { row = 5, col = 0 },
+		diagnostics = {},
+		trigger = {
+			file = "/tmp/x.py", cursor = { row = 0, col = 0 },
+			symbol = nil, line_text = "",
+			diagnostics = {}, diagnostics_at_col = {}, diagnostics_on_line = {},
+		},
+	}
+	for i = 1, scope_diag_count do
+		scope.diagnostics[i] = { lnum = 0, col = 0, severity = 1,
+			message = "err " .. i, source = "test" }
+	end
+	return scope
+end
+
+local qf = require("smart_actions.categories.quickfix")
+
+local function build_system(label, diag_count, ceiling)
+	local req, _ = qf.build(synth_scope(label, diag_count),
+		{ quickfix_region_max_actions = ceiling or 10 })
+	return req.system
+end
+
+-- Cursor mode: any non-visual scope uses the cursor prompt.
+for _, label in ipairs({ "line", "function", "file", "folder", "project", "auto" }) do
+	local sys = build_system(label, 5)
+	H.check("quickfix mode cursor for " .. label,
+		sys:find("Return AT MOST 3", 1, true) ~= nil, true)
+	H.check("quickfix no region marker for " .. label,
+		sys:find("VISUALLY SELECTED", 1, true) == nil, true)
+end
+
+-- Region mode: visual scope uses the region prompt with a dynamic cap.
+local cases = {
+	{ diags = 0,  ceiling = 10, expected_cap = 3  },  -- max(3, 2) = 3
+	{ diags = 2,  ceiling = 10, expected_cap = 4  },  -- max(3, 4) = 4
+	{ diags = 5,  ceiling = 10, expected_cap = 7  },  -- max(3, 7) = 7
+	{ diags = 8,  ceiling = 10, expected_cap = 10 },  -- max(3, 10) = 10
+	{ diags = 20, ceiling = 10, expected_cap = 10 },  -- clamped at ceiling
+	{ diags = 20, ceiling = 15, expected_cap = 15 },  -- user-raised ceiling
+	{ diags = 20, ceiling = 5,  expected_cap = 5  },  -- user-lowered ceiling
+}
+for _, c in ipairs(cases) do
+	local sys = build_system("visual", c.diags, c.ceiling)
+	H.check(string.format("quickfix region mode (diags=%d ceiling=%d)", c.diags, c.ceiling),
+		sys:find("VISUALLY SELECTED", 1, true) ~= nil, true)
+	local actual = tonumber(sys:match("Return up to (%d+) distinct bug%-fix"))
+	H.check(string.format("quickfix region cap (diags=%d ceiling=%d)", c.diags, c.ceiling),
+		actual, c.expected_cap)
+end
+
 H.summary()

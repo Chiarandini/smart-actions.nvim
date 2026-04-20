@@ -31,6 +31,27 @@ local defaults = {
 			model      = "claude-sonnet-4-6",
 			max_tokens = 4096,
 		},
+		openai = {
+			-- Any OpenAI-compatible endpoint — OpenAI itself, Ollama
+			-- (localhost:11434/v1), LM Studio, OpenRouter, Groq, Gemini
+			-- (via its OpenAI-compat endpoint), etc. Point `base_url` at
+			-- the service, pick a `model`, and set either `api_key_env`
+			-- (default "OPENAI_API_KEY") or `api_key` inline.
+			--
+			-- For MULTIPLE endpoints simultaneously, use the factory:
+			--   require("smart_actions.providers.openai").define({
+			--     id = "ollama", base_url = "http://localhost:11434/v1",
+			--     model = "qwen3-coder", api_key_env = "",
+			--   })
+			-- and pass the result to providers.register(). Each registered
+			-- id gets its own provider_config slot.
+			base_url      = "https://api.openai.com/v1",
+			model         = "gpt-5",
+			api_key_env   = "OPENAI_API_KEY",
+			api_key       = nil,
+			max_tokens    = 4096,
+			extra_headers = {},
+		},
 	},
 
 	categories = { "quickfix" },

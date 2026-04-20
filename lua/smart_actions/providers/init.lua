@@ -19,7 +19,7 @@ local M = require("smart_actions.registry").new({
 local active_cancel = nil
 
 function M.preload_builtins()
-	M.preload({ "claude_code", "anthropic" })
+	M.preload({ "claude_code", "anthropic", "openai" })
 end
 
 --- Resolve the provider to use right now. Honors config.provider override,

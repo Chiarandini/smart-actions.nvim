@@ -222,20 +222,75 @@ Quickfix has two prompt modes, picked automatically from scope shape: ~
 Built-in:
   claude_code	uses the local `claude` CLI (reuses your Claude Code auth)
   anthropic	direct Messages API via curl + streaming SSE
+  openai	generic OpenAI-compatible /chat/completions via curl + SSE
+		— covers OpenAI, Ollama, LM Studio, OpenRouter, Groq, Gemini
+		(compat endpoint), xAI, Together, and any other service
+		speaking the OpenAI chat-completions wire format
 
-API key resolution (anthropic only):
+API key resolution (anthropic):
   1. `lua/secrets.lua`  -> `{ anthropic = { api_key = "..." } }`
   2. `$ANTHROPIC_API_KEY`
 
-Pluggable: third-party plugins can register arbitrary providers — see
-`smart-actions-register-provider`.
+API key resolution (openai, per-spec):
+  1. provider_config.<id>.api_key (inline, e.g. from lua/secrets.lua)
+  2. os.getenv(provider_config.<id>.api_key_env)
+     — default env var is "OPENAI_API_KEY"
+  3. If api_key_env = "" AND api_key is unset, auth is skipped (for local
+     endpoints like Ollama / LM Studio / llama.cpp that don't gate on a
+     bearer token).
+
+						*smart-actions-openai-recipes*
+Using `openai` with other services: ~
+
+Set `provider = "openai"` and override `provider_config.openai`:
+
+  OpenAI		base_url = "https://api.openai.com/v1"
+			api_key_env = "OPENAI_API_KEY" (default)
+  Ollama		base_url = "http://localhost:11434/v1"
+			api_key_env = "" (no auth)
+  LM Studio		base_url = "http://localhost:1234/v1"
+			api_key_env = ""
+  OpenRouter		base_url = "https://openrouter.ai/api/v1"
+			api_key_env = "OPENROUTER_API_KEY"
+  Groq			base_url = "https://api.groq.com/openai/v1"
+			api_key_env = "GROQ_API_KEY"
+  Gemini (compat)	base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+			api_key_env = "GEMINI_API_KEY"
+  xAI (Grok)		base_url = "https://api.x.ai/v1"
+			api_key_env = "XAI_API_KEY"
+
+See README.md "Using other AI models" for full copy-paste recipes.
+
+						*smart-actions-openai-define*
+Multiple OpenAI-compatible endpoints simultaneously: ~
+
+If you need more than one endpoint live at the same time (e.g. OpenAI
+for cloud + Ollama for offline fallback in `probe_order`), use the
+factory exposed on the openai provider module:
+>lua
+    local openai = require("smart_actions.providers.openai")
+    require("smart_actions.providers").register(
+      openai.define({
+        id          = "ollama",
+        base_url    = "http://localhost:11434/v1",
+        model       = "qwen3-coder",
+        api_key_env = "",
+      })
+    )
+<
+Each `define(spec)` returns a first-class provider with its own `id`,
+slotting into `probe_order` and `provider_config[id]` like any built-in.
+
+Pluggable: third-party plugins can register arbitrary providers — use
+the factory for OpenAI-compatible services, and |smart-actions-register-provider|
+for anything else.
 
 						*smart-actions-register-provider*
 >lua
     require("smart_actions.providers").register({
-      id = "ollama",
-      display_name = "Ollama",
-      probe  = function() return vim.fn.executable("ollama") == 1 end,
+      id = "my_cli",
+      display_name = "My custom LLM CLI",
+      probe  = function() return vim.fn.executable("my-llm") == 1 end,
       stream = function(req, cb) ... return cancel_fn end,
     })
 <

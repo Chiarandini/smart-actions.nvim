@@ -15,7 +15,7 @@ All three share the same scope picker (line / function / file / folder / project
 
 ## Status
 
-v0.9.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API). Default `anthropic` model is `claude-sonnet-4-6` (roughly half the latency of Opus at near-identical quality on scope-bounded edits); override with `provider_config.anthropic.model`. Quickfix has two modes: cursor-focus (non-visual scopes, cap 3) and region-fix (visual selection, dynamic cap up to `quickfix_region_max_actions`, default 10). Cursor-line diagnostics are split into an "AT cursor column" priority tier. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms). Additional providers (OpenAI, Ollama) remain planned.
+v0.10.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tests`, `review`. Providers shipped: `claude_code` (CLI), `anthropic` (API), **`openai` (generic OpenAI-compatible)**. The `openai` provider covers OpenAI itself, Ollama, LM Studio, OpenRouter, Groq, Gemini-compat, and any other `/chat/completions`-speaking endpoint; see the "Using other AI models" section for ready-to-copy recipes. Default `anthropic` model is `claude-sonnet-4-6`. Quickfix has two modes: cursor-focus (non-visual scopes, cap 3) and region-fix (visual selection, dynamic cap up to `quickfix_region_max_actions`, default 10). Cursor-line diagnostics are split into an "AT cursor column" priority tier. Folder/project enumeration streams through `vim.system` (`file_scan_timeout_ms`, default 500ms).
 
 ## Install
 
@@ -67,6 +67,120 @@ opts = {
 ```
 
 The `claude_code` provider uses whatever model Claude Code itself is configured with — set it via the CLI's `/model` command or your Claude Code config.
+
+## Using other AI models
+
+Three providers ship built-in: `claude_code` (local CLI), `anthropic` (Messages API), and **`openai`** — a generic OpenAI-compatible `/chat/completions` client that talks to basically any service speaking that wire format. One provider, many endpoints: OpenAI, Ollama (local), LM Studio, OpenRouter, Groq, Together, xAI, Gemini-compat, and any self-hosted OpenAI-compatible server.
+
+### OpenAI
+
+Set `OPENAI_API_KEY` and force the provider:
+
+```lua
+opts = {
+  provider = "openai",
+  provider_config = { openai = { model = "gpt-5" } },
+}
+```
+
+### Ollama (or any local OpenAI-compatible server)
+
+Point `base_url` at your local endpoint and disable auth with `api_key_env = ""`:
+
+```lua
+opts = {
+  provider = "openai",
+  provider_config = {
+    openai = {
+      base_url    = "http://localhost:11434/v1",
+      model       = "qwen3-coder",
+      api_key_env = "",        -- no auth for local Ollama
+    },
+  },
+}
+```
+
+LM Studio (`:1234/v1`), LocalAI, llama.cpp server — same shape, different `base_url`.
+
+### OpenRouter
+
+OpenRouter brokers hundreds of models behind one API key:
+
+```lua
+opts = {
+  provider = "openai",
+  provider_config = {
+    openai = {
+      base_url      = "https://openrouter.ai/api/v1",
+      model         = "anthropic/claude-sonnet-4-6",  -- or any OR model slug
+      api_key_env   = "OPENROUTER_API_KEY",
+      extra_headers = {
+        ["HTTP-Referer"] = "https://github.com/Chiarandini/smart-actions.nvim",
+        ["X-Title"]      = "smart-actions.nvim",
+      },
+    },
+  },
+}
+```
+
+### Groq
+
+```lua
+opts = {
+  provider = "openai",
+  provider_config = {
+    openai = {
+      base_url    = "https://api.groq.com/openai/v1",
+      model       = "llama-3.3-70b-versatile",
+      api_key_env = "GROQ_API_KEY",
+    },
+  },
+}
+```
+
+### Gemini (via OpenAI-compat endpoint)
+
+Google exposes an OpenAI-compatible surface for Gemini, so the same provider works:
+
+```lua
+opts = {
+  provider = "openai",
+  provider_config = {
+    openai = {
+      base_url    = "https://generativelanguage.googleapis.com/v1beta/openai",
+      model       = "gemini-2.5-flash",
+      api_key_env = "GEMINI_API_KEY",
+    },
+  },
+}
+```
+
+### Multiple endpoints at once
+
+If you want more than one OpenAI-compatible endpoint live simultaneously (e.g. OpenAI for cloud + Ollama for offline fallback in `probe_order`), use the factory:
+
+```lua
+local openai = require("smart_actions.providers.openai")
+
+require("smart_actions").setup({
+  probe_order = { "claude_code", "anthropic", "openai", "ollama" },
+  provider_config = {
+    openai  = { model = "gpt-5" },
+    ollama  = { base_url = "http://localhost:11434/v1", model = "qwen3-coder", api_key_env = "" },
+  },
+})
+
+require("smart_actions.providers").register(
+  openai.define({
+    id          = "ollama",
+    base_url    = "http://localhost:11434/v1",
+    model       = "qwen3-coder",
+    api_key_env = "",
+  })
+)
+```
+
+Each `define(spec)` call returns a first-class provider with its own `id`, so it slots into `probe_order` and `provider_config[id]` like any built-in.
 
 ## UX
 
@@ -143,29 +257,31 @@ When `eager_action_after_explain = true` in setup, the quickfix category starts 
 
 ## Adding your own provider
 
-Providers are pluggable from day one. Register a new one from anywhere after `setup()`:
+Most new providers are just OpenAI-compatible endpoints — use `providers.openai.define(spec)` above. The full `register()` API is only needed when your provider speaks a *different* wire format (Gemini's native REST, a proprietary internal API, a CLI that isn't `claude`, etc.).
 
 ```lua
 require("smart_actions.providers").register({
-  id = "ollama",
-  display_name = "Ollama (local)",
+  id = "my_cli",
+  display_name = "My custom LLM CLI",
   probe = function()
-    return vim.fn.executable("ollama") == 1
+    return vim.fn.executable("my-llm") == 1, "my-llm not on $PATH"
   end,
   stream = function(req, cb)
-    -- req:  { system, messages, stop, cancel_token, opts }
-    --   opts = config.provider_config.ollama or {}
+    -- req:  { system, messages, opts, timeout_ms }
+    --   opts = config.provider_config.my_cli or {}
     -- cb:   { on_text(chunk), on_done(), on_error(err) }
-    -- return: a cancel function
+    -- return: a cancel function that kills any in-flight work
   end,
 })
 
 -- Then in setup():
 require("smart_actions").setup({
-  probe_order = { "ollama", "claude_code", "anthropic" },
-  provider_config = { ollama = { model = "codellama" } },
+  probe_order = { "my_cli", "claude_code", "anthropic", "openai" },
+  provider_config = { my_cli = { ... } },
 })
 ```
+
+For the common case (any OpenAI-compatible endpoint) the factory form is much shorter — see the previous section.
 
 ## Adding your own context
 
