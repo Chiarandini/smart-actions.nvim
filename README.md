@@ -2,16 +2,16 @@
 
 AI-suggested code actions for Neovim. Complements (does not replace) the stock LSP code-action flow on `gra`.
 
-Three entry points:
+Six entry points:
 
 - **`grA`** — quickfix actions (bug fixes, edge-case hardening). Pick from an inline-diff picker.
 - **`grE`** (`:SmartActionExplain`) — prose explanation of a diagnostic / tricky code, streamed into a floating window. Pivot to quickfix with `a`/`<CR>`.
 - **`grS`** (`:SmartActionSuppress`) — language-appropriate suppression-comment actions for LSP diagnostics (pyright-ignore, ts-expect-error, allow, noqa, etc.) without modifying logic.
 - **`grR`** (`:SmartActionRefactor`) — behaviour-preserving refactors (extract, inline, simplify, replace-mutation-with-functional). Explicitly not a bug-fix or styling category.
-- **`grT`** (`:SmartActionTests`) — generate ONE test for the function under cursor, framework auto-detected (pytest / vitest / `#[test]` / Go testing / plenary). Currently appends to the current file (multi-file test-file placement is a deferred v2.x feature).
+- **`grT`** (`:SmartActionTests`) — generate ONE test for the function under cursor, framework auto-detected (pytest / vitest / `#[test]` / Go testing / plenary). Currently appends to the current file (multi-file test-file placement is a deferred feature).
 - **`grV`** (`:SmartActionReview`) — broad review with `[blocker]` / `[suggestion]` / `[nit]` / `[question]` severity tags. Items may be fixes (have a diff, apply normally) or observations (rationale-only, surface as a notification).
 
-All three share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API auto-fallback), and the same pluggable context system.
+All six share the same scope picker (line / function / file / folder / project / auto / visual), the same provider layer (Claude Code CLI → Anthropic API → OpenAI-compatible auto-fallback), and the same pluggable context system.
 
 ## Status
 
@@ -46,9 +46,12 @@ v0.10.0. Categories shipped: `quickfix`, `explain`, `suppress`, `refactor`, `tes
 
 ## Requires
 
-One of:
-- `claude` CLI on `$PATH` (Claude Code), **or**
-- `ANTHROPIC_API_KEY` in env or `lua/secrets.lua` as `{ anthropic = { api_key = "..." } }`.
+At least one of:
+- `claude` CLI on `$PATH` — uses your existing Claude Code auth, no key setup needed, **or**
+- `ANTHROPIC_API_KEY` in env or `lua/secrets.lua` as `{ anthropic = { api_key = "..." } }`, **or**
+- `OPENAI_API_KEY` in env (plus `curl` on `$PATH`) — also works with any OpenAI-compatible service via `provider_config.openai.base_url`; see "Using other AI models" below for Ollama / OpenRouter / Groq / Gemini / xAI recipes.
+
+Providers are probed in registration order (`claude_code` → `anthropic` → `openai`) and the first that passes wins; force a specific one with `opts.provider = "..."` or reorder via `opts.probe_order`.
 
 Optional but recommended:
 - [`snacks.nvim`](https://github.com/folke/snacks.nvim) — the results picker uses Snacks's built-in `diff` previewer so the unified diff renders inline next to the action list. Without snacks, the plugin falls back to `vim.ui.select` (flat menu; no inline preview).
@@ -211,8 +214,6 @@ Streams a prose explanation into a bordered floating window — useful when an L
 
 The active keybindings are shown in the float's bottom border so they don't need to be memorised.
 
-### Suppress (`grS`)
-
 ### Refactor (`grR`)
 
 Same picker UX as quickfix, but each action is a behaviour-preserving refactor — extract a helper, inline a variable, simplify a conditional, replace a mutation loop with a functional expression. Explicitly forbidden from this category: bug fixes (use `grA`), stylistic tweaks, renames, comments. Returns nothing when the scope has no clear refactor opportunity.
@@ -361,10 +362,10 @@ Two suites under `tests/`:
     -c 'luafile tests/diff_spec.lua' -c 'qa!'
   ```
 
-- **`e2e_spec.lua`** — end-to-end: each test opens a deliberately-buggy fixture, runs the full pipeline (scope → context → category → real Claude Code stream → apply), and asserts shape properties (action count, apply succeeds within scope bounds, bug gone after apply, edit distance from cursor). Gated by `SA_E2E=1`. Covers all 7 scopes (`line` / `function` / `file` / `folder` / `project` / `visual` / `auto`), five languages (Python, Lua, Rust, Go, TypeScript; LaTeX if your env permits), the quickfix / explain / suppress categories, multi-hunk, syntax-broken input, and dirty-buffer apply.
+- **`e2e_spec.lua`** — end-to-end: each test opens a deliberately-buggy fixture, runs the full pipeline (scope → context → category → real Claude Code stream → apply), and asserts shape properties (action count, apply succeeds within scope bounds, bug gone after apply, edit distance from cursor). Gated by `SA_E2E=1`. Covers all 7 scopes (`line` / `function` / `file` / `folder` / `project` / `visual` / `auto`), five languages (Python, Rust, Go, TypeScript; LaTeX if your env permits), every shipped category (quickfix cursor-mode + region-mode, explain, suppress, refactor, tests, review), multi-hunk, syntax-broken input, and dirty-buffer apply.
 
   ```sh
-  ./tests/run-e2e.sh                   # ~15 cases, ~90s total
+  ./tests/run-e2e.sh                   # ~20 cases, ~2 min total
   ```
 
 - **`variance.lua`** — an N-run harness for measuring AI variance on a fixed fixture. Reports deletions/additions/max-distance-from-cursor per run so you can see if a prompt tweak is narrowing or widening the AI's output.

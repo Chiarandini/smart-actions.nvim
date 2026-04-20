@@ -17,12 +17,17 @@ CONTENTS					*smart-actions-contents*
 1. Overview					*smart-actions-overview*
 
 smart-actions.nvim augments (not replaces) the stock LSP code-action flow
-on `gra` with AI-suggested actions on `grA`. Scope is configurable, actions
-are grouped into pluggable categories, and the provider layer resolves
-to the local Claude Code CLI first and the Anthropic Messages API as
-fallback.
+on `gra` with AI-suggested actions on `grA` (plus `grE`/`grS`/`grR`/`grT`/
+`grV` for explain / suppress / refactor / tests / review). Scope is
+configurable, actions are grouped into pluggable categories, and the
+provider layer probes three built-ins in order: local Claude Code CLI,
+Anthropic Messages API, and a generic OpenAI-compatible endpoint (the
+last covers OpenAI, Ollama, LM Studio, OpenRouter, Groq, Gemini-compat,
+xAI, and any other /chat/completions service).
 
-v1 ships the `quickfix` category only.
+Shipped categories: `quickfix`, `explain`, `suppress`, `refactor`, `tests`,
+`review`. Additional categories / providers / context sources register
+through the same pluggable interfaces — see the respective sections below.
 
 ==============================================================================
 2. Setup					*smart-actions-setup*
@@ -395,7 +400,8 @@ request.
 ==============================================================================
 9. Known limitations				*smart-actions-limits*
 
-What v1 deliberately does NOT do (planned for v2):
+Current deferred work. Everything else listed in earlier versions of this
+page has shipped — see |smart-actions-providers| and |smart-actions-categories|.
 
   Multi-file edits ~
     The applier targets the cursor's buffer only. folder/project scopes
@@ -407,24 +413,27 @@ What v1 deliberately does NOT do (planned for v2):
     finishes. Partial streaming into an already-open picker isn't wired
     yet (Snacks.picker doesn't expose an append API as of this version).
 
-  Async file enumeration ~
-    folder/project scope's `rg --files` streams through vim.system and
-    kills rg the instant it has `max_files` paths or `file_scan_timeout_ms`
-    has elapsed. The main-thread wait is bounded by the timeout so nvim
-    never freezes on huge trees — see |smart-actions-payload-caps|.
+  Tests category: multi-file placement ~
+    `grT` currently appends the generated test to the current file. It
+    doesn't yet create or extend a separate `tests/test_foo.py`-style
+    file. Move the generated test by hand in the meantime.
 
-  Additional AI providers ~
-    Only claude_code CLI and anthropic API ship. OpenAI / Ollama / Gemini
-    would each be one file under lua/smart_actions/providers/ — see
-    |smart-actions-register-provider|.
-
-  Action severity tiering ~
-    Every action shows at equal weight. A v2 "core" vs "optional" tier is
-    sketched in the plan but not implemented.
+Feature pointers (not limitations — documented here because they were
+previously listed as deferred):
 
   Request timeout guard ~
     Configurable via config.provider_timeout_ms (default 120000 = 2 min).
     Set to 0 to disable. Fires on_error("… timed out after Nms") and
     clears the busy spinner.
+
+  File-enumeration time budget ~
+    folder/project scope's `rg --files` streams through vim.system and is
+    killed the instant it has `max_files` paths or `file_scan_timeout_ms`
+    has elapsed — whichever comes first. See |smart-actions-payload-caps|.
+
+  Action severity in review ~
+    `grV` tags each item with `[blocker]` / `[suggestion]` / `[nit]` /
+    `[question]` and renders rationale-only observations as markdown in
+    the preview pane. See the Review entry in |smart-actions-commands|.
 
  vim:tw=78:ts=8:ft=help:norl:
